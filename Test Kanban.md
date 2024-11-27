@@ -13,6 +13,7 @@ kanban-plugin: board
 ## Tester 2
 
 - [ ] [[Troroolllo]]
+- [ ] [[Untitled Kanban]]
 
 
 ## Tester 3
