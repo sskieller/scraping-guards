@@ -1,0 +1,8 @@
+# GUARD: robots.txt — declares scraping policy. Compliant crawlers obey; the
+# /trap path is a honeypot that no legitimate crawler should ever request.
+User-agent: *
+Disallow: /trap
+Disallow: /api/
+Crawl-delay: 10
+
+# Any request to /trap (see the honeypot link on index.html) is treated as a bot.

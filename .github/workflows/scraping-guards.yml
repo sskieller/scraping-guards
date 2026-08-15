@@ -1,0 +1,42 @@
+name: scraping-guards
+
+on:
+  push:
+    paths:
+      - "scraping-guards/**"
+      - ".github/workflows/scraping-guards.yml"
+  pull_request:
+    paths:
+      - "scraping-guards/**"
+      - ".github/workflows/scraping-guards.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scraping-guards
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run scraping-guards test suite
+        run: npx playwright test
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: scraping-guards/playwright-report
+          retention-days: 7
