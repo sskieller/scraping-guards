@@ -6,7 +6,8 @@
   "scripts": {
     "serve": "node server.js",
     "test": "playwright test",
-    "test:install": "playwright install --with-deps chromium"
+    "test:install": "playwright install --with-deps chromium",
+    "font": "python3 tools/generate-cipher-font.py"
   },
   "devDependencies": {
     "@playwright/test": "^1.47.0"

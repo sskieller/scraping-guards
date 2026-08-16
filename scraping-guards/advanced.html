@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Scraping Guards — Tier 1 &amp; 2</title>
+  <link rel="stylesheet" href="cipher.css" />
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 62rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    section { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    h2 { margin-top: 0; font-size: 1.05rem; }
+    code { background: #8882; padding: 0 .25rem; border-radius: 3px; }
+    .flag { font-family: monospace; }
+    .tier2 { border-left: 4px solid #e67e22; }
+    .note { font-size: .85rem; opacity: .8; }
+    output { display: block; font-family: monospace; white-space: pre-wrap; margin-top: .4rem; }
+  </style>
+</head>
+<body>
+  <h1>Scraping Guards — Tier 1 &amp; Tier 2</h1>
+  <p>
+    Guards 26–41 are fully implemented. Guards 42–46 (orange) are
+    <strong>simulated stubs</strong> — the real versions require network-layer
+    infrastructure a Node server cannot reach. See
+    <code>docs/TIER3-COMMERCIAL.md</code> for managed alternatives and pricing.
+  </p>
+  <p class="note">Base page with guards 0–25: <a href="index.html">index.html</a></p>
+
+  <!-- ================= TIER 1 ================= -->
+
+  <section data-guard="captcha-interstitial">
+    <h2>26. CAPTCHA interstitial</h2>
+    <p>Content behind <code>/gated</code> is served only after a challenge is solved.
+       The operands render to a canvas, so solving needs OCR + arithmetic.</p>
+    <canvas id="captcha-canvas" width="180" height="44" style="border:1px solid #8884"></canvas>
+    <div>
+      <input id="captcha-answer" type="number" placeholder="answer" style="width:6rem" />
+      <button id="captcha-submit" type="button">Submit</button>
+      <button id="captcha-new" type="button">New challenge</button>
+    </div>
+    <output id="captcha-out">[not solved]</output>
+  </section>
+
+  <section data-guard="proof-of-work">
+    <h2>27. Proof-of-work challenge</h2>
+    <p>Client must find a nonce where <code>sha256(challenge:nonce)</code> starts
+       with 4 zero hex chars. Trivial once, costly at scraping volume.</p>
+    <button id="pow-run" type="button">Solve challenge</button>
+    <output id="pow-out">[not attempted]</output>
+  </section>
+
+  <section data-guard="glyph-font">
+    <h2>28. Glyph-substitution cipher font</h2>
+    <p>The DOM below holds ciphertext; the remapped font renders the plaintext.
+       Select and copy it — you get the gibberish, not what you see.</p>
+    <p class="glyph-cipher" id="glyph-text">SYNT.TYLCUSBAG.q9p2</p>
+    <p class="note">
+      The plaintext appears nowhere in this document — not in the markup, not in
+      a data attribute, not in JS. It exists only as the shape the font draws.
+      Cipher: letters ROT13, digits +5, <code>-</code> ↔ <code>.</code>
+    </p>
+  </section>
+
+  <section data-guard="aes-crypto">
+    <h2>29. AES-GCM encrypted payload</h2>
+    <p>Server sends ciphertext + IV; the key is derived in-browser with PBKDF2
+       (100k iterations) and decrypted via <code>crypto.subtle</code>.</p>
+    <output id="aes-out">[fetching…]</output>
+  </section>
+
+  <section data-guard="signed-token">
+    <h2>30. HMAC-signed expiring token</h2>
+    <p>Tokens are signed and live 3s — they cannot be lifted from source and
+       replayed, unlike the static header in guard 22.</p>
+    <output id="token-out">[fetching…]</output>
+  </section>
+
+  <section data-guard="dom-randomization">
+    <h2>31. Per-request DOM randomization</h2>
+    <p>Class and attribute names are regenerated on every response, so any
+       scraper pinned to a selector breaks on the next fetch. Reload to see them change.</p>
+    <div class="__RND1__" data-__RND2__="payload">
+      <span class="__RND3__ flag">FLAG-DOMRAND-1f4c</span>
+    </div>
+    <p class="note">This request used: <code>.__RND1__</code>, <code>data-__RND2__</code>, <code>.__RND3__</code></p>
+  </section>
+
+  <section data-guard="header-validation">
+    <h2>32. Request header validation</h2>
+    <p>Checks <code>Sec-Fetch-*</code>, <code>Accept-Language</code>,
+       <code>Sec-CH-UA</code> Client Hints, header <em>ordering</em>, and known
+       HTTP-library user agents.</p>
+    <p class="note">
+      Expect <code>header-order-mismatch</code> under Playwright/Selenium: the
+      automation layer injects <code>Accept-Language</code> out of Chrome's
+      natural position. Loading this page in a normal browser passes.
+    </p>
+    <output id="headers-out">[checking…]</output>
+  </section>
+
+  <section data-guard="referer-origin">
+    <h2>33. Referer / Origin validation</h2>
+    <p>Sub-resource requests must carry a same-origin <code>Referer</code>.</p>
+    <output id="referer-out">[checking…]</output>
+  </section>
+
+  <section data-guard="cookie-session">
+    <h2>34. Cookie session + CSRF double-submit</h2>
+    <p>Requires a session cookie <em>and</em> a matching
+       <code>X-CSRF-Token</code> header — stateless GETs fail.</p>
+    <output id="session-out">[checking…]</output>
+  </section>
+
+  <section data-guard="automation-artifacts">
+    <h2>35. Deep automation artifacts</h2>
+    <p>Selenium <code>cdc_</code> properties, CDP hooks, AudioContext &amp;
+       font fingerprints, WebRTC, <code>deviceMemory</code>/
+       <code>hardwareConcurrency</code>, and timezone-vs-locale consistency.</p>
+    <output id="artifacts-out">[checking…]</output>
+  </section>
+
+  <section data-guard="behavior-advanced">
+    <h2>36. Advanced behavioral analysis</h2>
+    <p>Scores pointer-path curvature and sampling jitter, keystroke cadence, and
+       form fill time. Move the mouse and type below, then submit.</p>
+    <input id="behavior-input" type="text" placeholder="type something" />
+    <button id="behavior-submit" type="button">Score me</button>
+    <output id="behavior-out">[no telemetry yet]</output>
+  </section>
+
+  <section data-guard="cursor-pagination">
+    <h2>37. Stateful signed-cursor pagination</h2>
+    <p>Pages are reachable only by walking signed cursors in order; the flag is
+       on the last page and <code>?page=N</code> cannot be forged.</p>
+    <button id="cursor-run" type="button">Walk all pages</button>
+    <output id="cursor-out">[not started]</output>
+  </section>
+
+  <section data-guard="sse-transport">
+    <h2>38. Server-Sent Events transport</h2>
+    <p>Content is pushed over an event stream and never appears in any HTML body.</p>
+    <output id="sse-out">[connecting…]</output>
+  </section>
+
+  <section data-guard="websocket-transport">
+    <h2>39. WebSocket transport</h2>
+    <p>Requires a protocol upgrade and the correct command message.</p>
+    <output id="ws-out">[connecting…]</output>
+  </section>
+
+  <section data-guard="ratelimit-advanced">
+    <h2>40. Advanced rate limiting</h2>
+    <p>Sliding window (no boundary burst), token bucket (allows human bursts,
+       caps sustained rate), and a tarpit that slows instead of returning 429.</p>
+    <button id="rate-run" type="button">Hammer all three</button>
+    <output id="rate-out">[not started]</output>
+  </section>
+
+  <section data-guard="canary-token">
+    <h2>41. Per-client canary watermark</h2>
+    <p>Every response carries an identifier derived from the requester — leaked
+       content traces back to whoever fetched it.</p>
+    <p class="note">This page's canary: <code>__CANARY__</code></p>
+    <output id="canary-out">[fetching…]</output>
+  </section>
+
+  <!-- ================= TIER 2 (STUBS) ================= -->
+
+  <section class="tier2" data-guard="tls-fingerprint">
+    <h2>42. TLS fingerprint (JA3/JA4) — <em>simulated</em></h2>
+    <p>Real detection reads the ClientHello (cipher suites, extensions, curves
+       and their order). Needs a TLS-terminating proxy. Force a verdict with
+       <code>X-Sim-JA3: python-requests|curl|Go-http-client|chrome</code>.</p>
+    <output id="tls-out">[checking…]</output>
+  </section>
+
+  <section class="tier2" data-guard="http2-fingerprint">
+    <h2>43. HTTP/2 frame fingerprint — <em>simulated</em></h2>
+    <p>Real detection reads SETTINGS values/order, WINDOW_UPDATE, PRIORITY tree
+       and pseudo-header order. Force with <code>X-Sim-H2</code>.</p>
+    <output id="h2-out">[checking…]</output>
+  </section>
+
+  <section class="tier2" data-guard="os-fingerprint">
+    <h2>44. TCP/IP stack (OS) fingerprint — <em>simulated</em></h2>
+    <p>Real detection (p0f-style) needs raw packet capture: TTL, window size,
+       MSS, option order. Force with <code>X-Sim-OS</code>.</p>
+    <output id="os-out">[checking…]</output>
+  </section>
+
+  <section class="tier2" data-guard="ip-reputation">
+    <h2>45. IP reputation / ASN — <em>simulated</em></h2>
+    <p>Real detection needs a maintained feed (MaxMind, IPQualityScore, Tor exit
+       list). Force with <code>X-Sim-IP-Type: datacenter|vpn|tor|residential</code>.</p>
+    <output id="ip-out">[checking…]</output>
+  </section>
+
+  <section class="tier2" data-guard="connection-limit">
+    <h2>46. Connection-level limits — <em>partly real</em></h2>
+    <p>Concurrent sockets per IP are genuinely counted; TLS session resumption
+       and H2 multiplexing are not observable here.</p>
+    <output id="conn-out">[checking…]</output>
+  </section>
+
+  <script src="guards-advanced.js"></script>
+</body>
+</html>
