@@ -1,0 +1,33 @@
+# ai.txt — AI/TDM usage policy for this origin (guard 70)
+#
+# Declarative layer. These files do NOT enforce anything; they establish that
+# automated collection was unauthorised, which is what the enforcement guards
+# and any later legal action rest on. Keep them consistent with robots.txt.
+
+User-Agent: *
+Disallow: /
+
+# Text and Data Mining reservation (EU DSM Directive Art. 4(3)).
+# Machine-readable reservation of rights — also sent as the TDM-Reservation
+# header and the TDM-Policy link on responses.
+TDM-Reservation: 1
+TDM-Policy: /tdm-policy.json
+
+# Named AI crawlers explicitly disallowed.
+User-Agent: GPTBot
+User-Agent: OAI-SearchBot
+User-Agent: ChatGPT-User
+User-Agent: ClaudeBot
+User-Agent: Claude-Web
+User-Agent: anthropic-ai
+User-Agent: Google-Extended
+User-Agent: Applebot-Extended
+User-Agent: CCBot
+User-Agent: Bytespider
+User-Agent: PerplexityBot
+User-Agent: Meta-ExternalAgent
+User-Agent: Amazonbot
+Disallow: /
+
+# Licensing: content is available for AI training under a negotiated licence.
+Contact: licensing@example.invalid

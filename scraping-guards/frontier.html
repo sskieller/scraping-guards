@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Guard 70: declarative AI/TDM opt-out, alongside /ai.txt and /llms.txt -->
+  <meta name="robots" content="noindex, nofollow, noai, noimageai" />
+  <meta name="tdm-reservation" content="1" />
+  <meta name="tdm-policy" content="/tdm-policy.json" />
+  <title>Scraping Guards — Frontier (47–71)</title>
+  <link rel="stylesheet" href="/assets/frontier.css?sid=__SID__" />
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 62rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    section { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    h2 { margin-top: 0; font-size: 1.05rem; }
+    code { background: #8882; padding: 0 .25rem; border-radius: 3px; }
+    .sim { border-left: 4px solid #e67e22; }
+    .arch { border-left: 4px solid #2980b9; }
+    .note { font-size: .85rem; opacity: .8; }
+    output { display: block; font-family: monospace; white-space: pre-wrap; margin-top: .4rem; }
+    .fp-base,.fp-dark,.fp-wide,.fp-touch{width:1px;height:1px;display:inline-block}
+    .sg-beacon{font-size:1px;opacity:.01}
+    /* Guard 55: digits rendered purely as sprite offsets — no numerals in the DOM */
+    .d { display: inline-block; width: 24px; height: 36px; background-image: url("/assets/digits.png");
+         background-repeat: no-repeat; vertical-align: middle; }
+    .d0{background-position:0 0}.d1{background-position:-24px 0}.d2{background-position:-48px 0}
+    .d3{background-position:-72px 0}.d4{background-position:-96px 0}.d5{background-position:-120px 0}
+    .d6{background-position:-144px 0}.d7{background-position:-168px 0}.d8{background-position:-192px 0}
+    .d9{background-position:-216px 0}
+    .decoy { display: none; }
+  </style>
+</head>
+<body data-sid="__SID__">
+  <h1>Scraping Guards — Frontier (47–71)</h1>
+  <p>
+    Guards 47–70 extend the suite past the original 46. Blue = architectural,
+    orange = simulated stub. Base pages:
+    <a href="index.html">index.html</a> (0–25),
+    <a href="advanced.html">advanced.html</a> (26–46).
+  </p>
+  <!-- Guard 48/68 probes: the font only loads if something actually uses it,
+       and each fingerprint bucket needs its own element (an overridden
+       background-image is never fetched). -->
+  <span class="sg-beacon" aria-hidden="true">.</span>
+  <span class="fp-base"></span><span class="fp-dark"></span><span class="fp-wide"></span><span class="fp-touch"></span>
+  <img src="/assets/beacon.png?sid=__SID__" alt="" width="1" height="1" />
+
+  <section class="arch" data-guard="risk-engine">
+    <h2>47. Weighted risk scoring + proportional escalation</h2>
+    <p>The architectural fix: signals contribute weight to one score, and the
+       response scales with it — <code>allow → challenge → tarpit → block</code>
+       — instead of 46 independent binary verdicts.</p>
+    <output id="risk-out">[evaluating…]</output>
+  </section>
+
+  <section data-guard="subresource">
+    <h2>48. Subresource verification</h2>
+    <p>A browser fetches the CSS, font and image this page references. A scraper
+       that pulls only HTML never does — cheap and high-signal.</p>
+    <output id="subresource-out">[checking…]</output>
+  </section>
+
+  <section data-guard="anti-debug">
+    <h2>49. Anti-debugging / DevTools detection</h2>
+    <p>Timing around a <code>debugger</code> statement, viewport-gap heuristics,
+       a console inspection tripwire, and native-builtin tamper checks.</p>
+    <output id="antidebug-out">[checking…]</output>
+  </section>
+
+  <section data-guard="obfuscation">
+    <h2>50. Obfuscated + integrity-checked delivery</h2>
+    <p>Guard 49 ships packed, and the page verifies the hash of what it actually
+       loaded against the server manifest.</p>
+    <p class="note">Packing only — not commercial-grade obfuscation. See the honesty note in <code>tools/obfuscate.js</code>.</p>
+    <output id="integrity-out">[checking…]</output>
+  </section>
+
+  <section data-guard="wasm-challenge">
+    <h2>51. WebAssembly challenge</h2>
+    <p>The decode routine lives in a hand-assembled 43-byte wasm module, not in
+       readable JS. Ciphertext in the DOM; the module is the only key.</p>
+    <p class="note">DOM ciphertext: <code id="wasm-ct">HBYbHXcNGwkXd2M4aWs=</code></p>
+    <output id="wasm-out">[loading…]</output>
+  </section>
+
+  <section data-guard="labyrinth">
+    <h2>52. Labyrinth</h2>
+    <p><code>/maze/*</code> is an endless deterministic maze of plausible pages.
+       robots.txt disallows it, so only a robots-ignoring crawler ever enters —
+       which makes entry itself the signal.</p>
+    <output id="maze-out">[not entered]</output>
+  </section>
+
+  <section data-guard="compression-bomb">
+    <h2>53. Compression bomb</h2>
+    <p>A small gzip response that expands to 2 MB, served <em>only</em> to
+       clients already scored as blocked. Capped at 10 MB by design.</p>
+    <output id="bomb-out">[not requested]</output>
+  </section>
+
+  <section data-guard="poisoning">
+    <h2>54. Content poisoning at scale</h2>
+    <p>Guard 16 hid one static fake. This generates unlimited plausible,
+       deterministic, entirely false records for clients that score as bots.</p>
+    <output id="poison-out">[fetching…]</output>
+  </section>
+
+  <section data-guard="sprite-digits">
+    <h2>55. CSS sprite digits</h2>
+    <p>The value below contains no numerals in the DOM — each digit is a
+       background-position offset into one sprite image.</p>
+    <p><span class="d d4"></span><span class="d d2"></span><span class="d d9"></span><span class="d d1"></span></p>
+    <p class="note">The markup carries only <code>class="d d4"</code> — no numeral appears anywhere in the DOM.</p>
+  </section>
+
+  <section data-guard="pixel-text">
+    <h2>56. Pixel-only text</h2>
+    <p>Server-rasterised with a built-in bitmap font — the string exists nowhere
+       in the response, only as pixels.</p>
+    <img src="/assets/pixels.png" alt="value rendered as an image" />
+    <p class="note">Accessibility cost is real: this is invisible to screen readers.</p>
+  </section>
+
+  <section data-guard="fragmentation">
+    <h2>57. Text fragmentation with interleaved decoys</h2>
+    <p>The value is split across randomly-sized spans with hidden decoy spans
+       between them, regenerated per request.</p>
+    <p data-fragment>__FRAGMENT__</p>
+  </section>
+
+  <!--SSRVARIANT-->
+  <section data-guard="ssr-variance">
+    <h2>58. Server-side structural variance</h2>
+    <p>This block is wrapped in a different nesting depth on every response, so
+       no single structural selector generalises.</p>
+    <span class="flag">FLAG-SSRVAR-6b0e</span>
+  </section>
+  <!--/SSRVARIANT-->
+
+  <section data-guard="accounts">
+    <h2>59. Accounts, quota and device binding</h2>
+    <p>The most effective real control: content behind an account with a
+       per-key quota, bound to the device that minted it.</p>
+    <output id="account-out">[logging in…]</output>
+  </section>
+
+  <section data-guard="mtls">
+    <h2>60. Mutual TLS</h2>
+    <p>A second listener on port +1 requires a client certificate signed by our
+       CA. Genuinely real — possession of a private key cannot be spoofed.</p>
+    <p class="note">Browsers cannot demo this without an installed client cert; see <code>tests/frontier.spec.js</code>.</p>
+  </section>
+
+  <section class="sim" data-guard="attestation">
+    <h2>61. Platform attestation — <em>simulated</em></h2>
+    <p>Real: Play Integrity / Apple App Attest, verified server-to-server with
+       the platform vendor.</p>
+    <output id="attest-out">[checking…]</output>
+  </section>
+
+  <section class="sim" data-guard="private-access-token">
+    <h2>62. Private Access Tokens — <em>simulated</em></h2>
+    <p>Real: RFC 9577 Privacy Pass — blind-signed device attestation, requires
+       an issuer relationship.</p>
+    <output id="pat-out">[checking…]</output>
+  </section>
+
+  <section data-guard="persisted-queries">
+    <h2>63. Persisted / allowlisted queries</h2>
+    <p>Only queries whose SHA-256 the server already knows will execute;
+       arbitrary query text is refused outright.</p>
+    <output id="graphql-out">[checking…]</output>
+  </section>
+
+  <section data-guard="request-signing">
+    <h2>64. Request-body signing</h2>
+    <p>The signature covers method, path, timestamp, nonce and body hash, so a
+       captured request cannot be modified or replayed.</p>
+    <output id="reqsign-out">[checking…]</output>
+  </section>
+
+  <section data-guard="binary-protocol">
+    <h2>65. Binary protocol, rotating field names</h2>
+    <p>Compact TLV with per-session re-keyed field names — one parser will not
+       work twice.</p>
+    <output id="binproto-out">[checking…]</output>
+  </section>
+
+  <section data-guard="nav-graph">
+    <h2>66. Navigation-graph plausibility</h2>
+    <p>Humans dwell and wander; crawlers move on a metronome.</p>
+    <output id="nav-out">[recording…]</output>
+  </section>
+
+  <section data-guard="conditional-requests">
+    <h2>67. Conditional-request behaviour</h2>
+    <p>Browsers revalidate with <code>If-None-Match</code>; naive scrapers
+       re-download the same bytes forever.</p>
+    <output id="etag-out">[checking…]</output>
+  </section>
+
+  <section data-guard="css-fingerprint">
+    <h2>68. No-JS CSS fingerprinting</h2>
+    <p>Media queries pull different background images, revealing viewport,
+       colour scheme and pointer type with JavaScript entirely disabled.</p>
+    <output id="cssfp-out">[checking…]</output>
+  </section>
+
+  <section data-guard="fingerprint-surfaces">
+    <h2>69. Extended fingerprint surfaces</h2>
+    <p>Font enumeration, media codecs, speech voices, timer resolution, WebGPU
+       and clock skew.</p>
+    <output id="fpsurface-out">[checking…]</output>
+  </section>
+
+  <section data-guard="ai-declarative">
+    <h2>70. AI / TDM declarative layer</h2>
+    <p><code>/ai.txt</code>, <code>/llms.txt</code>, robots.txt AI-crawler
+       blocks, <code>noai</code> meta tags and TDM reservation headers.</p>
+    <p class="note">Declarations, not enforcement — they establish that collection was unauthorised.</p>
+    <output id="ai-out">[checking…]</output>
+  </section>
+
+  <section class="sim" data-guard="quic-fingerprint">
+    <h2>71. HTTP/3 QUIC fingerprint — <em>simulated</em></h2>
+    <p>Real: QUIC transport parameters and Initial packet shape, via an HTTP/3
+       terminator.</p>
+    <output id="quic-out">[checking…]</output>
+  </section>
+
+  <script src="antidebug.js"></script>
+  <script src="guards-frontier.js"></script>
+</body>
+</html>

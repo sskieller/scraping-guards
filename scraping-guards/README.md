@@ -1,13 +1,14 @@
 # Scraping Guards Test Page
 
 A self-contained target for testing scrapers and anti-scraping defenses in CI.
-**46 guards** across three tiers, each emitting a `FLAG-<NAME>-<id>` token so a
+**71 guards** across four tiers, each emitting a `FLAG-<NAME>-<id>` token so a
 test can assert exactly what a given class of client can and cannot reach.
 
 | Tier | Guards | Status |
 | --- | --- | --- |
 | **0–1 — application layer** | 0–41 | **Fully implemented** — real defenses |
-| **2 — network layer** | 42–46 | **Simulated stubs** — a Node server cannot observe TLS/TCP; every response is marked `simulated: true` |
+| **1b — frontier** | 47–70 | **Fully implemented** — risk engine, adversarial responses, identity, API shape, passive signals, declarative layer |
+| **2 — network layer** | 42–46, 71 | **Simulated stubs** — a Node server cannot observe TLS/TCP; every response is marked `simulated: true` |
 | **3 — managed services** | — | Not code. See [`docs/TIER3-COMMERCIAL.md`](docs/TIER3-COMMERCIAL.md) for what to install and what it costs |
 
 ## Layout
@@ -28,6 +29,18 @@ test can assert exactly what a given class of client can and cannot reach.
 | `tests/guards.spec.js` | Guards 0–25 |
 | `tests/advanced.spec.js` | Guards 26–41 |
 | `tests/stubs.spec.js` | Guards 42–46 + stub-honesty guardrails |
+| `frontier.html` / `guards-frontier.js` | Guards 47–71 |
+| `routes-frontier.js` | Server routes for 47–71 |
+| `lib/risk.js` | **Weighted risk scoring + escalation ladder (guard 47)** |
+| `lib/labyrinth.js` | Maze, compression bomb, content poisoning (52–54) |
+| `lib/accounts.js` | Accounts/quota/device binding + attestation stubs (59–62) |
+| `lib/apishape.js` | Persisted queries, request signing, binary protocol (63–65) |
+| `lib/pngtext.js` | Bitmap-font PNG renderer — sprite digits, pixel-only text (55–56) |
+| `lib/mtls.js` | Mutual-TLS listener, certs generated on demand (60) |
+| `src/antidebug.src.js` → `antidebug.js` | Anti-debug source and its packed build (49–50) |
+| `tools/make-wasm.js`, `tools/obfuscate.js` | Build steps for guards 51 and 50 |
+| `ai.txt`, `llms.txt` | AI/TDM declarative layer (70) |
+| `tests/frontier.spec.js` | Guards 47–71 |
 
 ## Run
 
@@ -35,10 +48,11 @@ test can assert exactly what a given class of client can and cannot reach.
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test                 # boots server.js, runs all 56 tests
+npm test                 # boots server.js, runs all 91 tests
 
 npm run serve            # http://localhost:8080  → index.html
                          # http://localhost:8080/advanced.html → tiers 1 & 2
+npm run build            # regenerate wasm/challenge.wasm + antidebug.js + integrity.json
 npm run font             # regenerate cipher.woff2 (needs: pip install fonttools brotli)
 ```
 
@@ -97,6 +111,39 @@ npm run font             # regenerate cipher.woff2 (needs: pip install fonttools
 | **40** | `ratelimit-advanced` | Sliding window, token bucket, **tarpit** | Distributed slow crawling |
 | **41** | `canary-token` | Per-client watermark on every response | (Not defeatable — it's forensic) |
 
+### Tier 1b · Frontier (implemented)
+
+Everything the first 46 were missing. Guard 47 is the architectural one: the
+others feed it.
+
+| # | `data-guard` | Technique | Defeated by |
+| --- | --- | --- | --- |
+| **47** | `risk-engine` | **Weighted scoring + `allow→challenge→tarpit→block` escalation** | Suppressing enough signal mass at once |
+| 48 | `subresource` | CSS/font/image fetch verification | Loading subresources (i.e. being a browser) |
+| 49 | `anti-debug` | `debugger` timing, viewport gap, console tripwire, builtin tamper check | Patching the checks |
+| 50 | `obfuscation` | Packed bundle + runtime SHA-256 integrity check | Unpacking (and it *is* unpackable) |
+| 51 | `wasm-challenge` | Decode routine in a hand-assembled 43-byte wasm module | Instantiating or disassembling it |
+| 52 | `labyrinth` | Endless deterministic maze; robots-disallowed, so entry is the signal | Obeying robots.txt |
+| 53 | `compression-bomb` | 2 MB gzip expansion, blocked clients only, 10 MB hard cap | Streaming sanely / honouring Content-Length |
+| 54 | `poisoning` | Unlimited plausible, deterministic, false records | Detecting you were classified as a bot |
+| 55 | `sprite-digits` | Digits as background-position offsets; no numerals in the DOM | OCR / sprite-offset arithmetic |
+| 56 | `pixel-text` | Server-rasterised bitmap font; string absent from the response | OCR |
+| 57 | `fragmentation` | Value split across random spans with hidden decoys | Respecting CSS visibility |
+| 58 | `ssr-variance` | Nesting depth and attribute order vary per response | Semantic (not structural) extraction |
+| 59 | `accounts` | Login + per-key quota + device binding | Buying accounts |
+| 60 | `mtls` | **Real** mutual TLS on port +1 | Possessing a CA-signed client key |
+| 63 | `persisted-queries` | Only allowlisted query hashes execute | Using the sanctioned queries only |
+| 64 | `request-signing` | HMAC over method+path+timestamp+nonce+body; single-use nonce | Holding the signing secret |
+| 65 | `binary-protocol` | TLV with per-session re-keyed field names | Re-deriving the schema each session |
+| 66 | `nav-graph` | Dwell-time and path plausibility | Realistic pacing |
+| 67 | `conditional-requests` | Revalidation (`If-None-Match`) behaviour | Implementing a cache |
+| 68 | `css-fingerprint` | Media queries pull distinct images — **works with JS disabled** | Rendering CSS honestly |
+| 69 | `fingerprint-surfaces` | Fonts, codecs, voices, timer resolution, WebGPU, clock skew | Full stealth profile |
+| 70 | `ai-declarative` | `ai.txt`, `llms.txt`, robots AI blocks, `noai` meta, TDM reservation | (Declaration, not enforcement) |
+
+Guards **61** (`attestation`) and **62** (`private-access-token`) are simulated —
+they need Google/Apple/Cloudflare as the attesting party. See the stub table.
+
 ### Tier 2 · Network layer (simulated stubs)
 
 Each returns `simulated: true` and names the infrastructure real detection needs.
@@ -109,6 +156,9 @@ Force either branch with a header, so CI can exercise both paths.
 | 44 | `os-fingerprint` | p0f-style TCP/IP | `X-Sim-OS` | Raw packet capture (TTL, window, MSS) |
 | 45 | `ip-reputation` | ASN / VPN / Tor | `X-Sim-IP-Type: datacenter\|vpn\|tor\|residential` | MaxMind, IPQualityScore, Tor exit list |
 | 46 | `connection-limit` | Concurrent sockets | — | **Partly real** — sockets counted; TLS resumption is not |
+| 61 | `attestation` | Play Integrity / App Attest | — | Server-to-server verification with Google/Apple |
+| 62 | `private-access-token` | Privacy Pass | — | RFC 9577 issuer relationship (Apple/Cloudflare) |
+| 71 | `quic-fingerprint` | HTTP/3 QUIC | `X-Sim-QUIC: bot` | QUIC transport params — needs an HTTP/3 terminator |
 
 `tests/stubs.spec.js` asserts that every stub declares `simulated: true` and that
 `lib/netstub.js` still documents its real-world requirement — so a stub can never
@@ -122,6 +172,24 @@ quietly be mistaken for a working control.
 - **JS-capable browser** — resolves guards 1–13, 22–23, 26–41.
 - **Stock automation (Playwright/Selenium defaults)** — trips `webdriver`,
   `headless`, `webgl`, `automation-artifacts`, and **header ordering**.
+
+### On completeness
+
+This is not "every known guard" — anti-scraping is adversarial and evolving, and
+no canonical list exists. It is a broad, working cross-section. The deliberate
+gaps are: per-session generated challenge VMs, commercial-grade obfuscation
+(see the honesty note in `tools/obfuscate.js`), and the one thing you genuinely
+cannot self-host — **cross-customer intelligence**, where a vendor recognises a
+scraper's fingerprint from other properties before it ever hits yours.
+
+### Accessibility and proportionality
+
+Several guards actively harm real users: `anti-copy`, `canvas-text`,
+`pixel-text`, `glyph-font` and `sprite-digits` are invisible or useless to
+screen readers, and `compression-bomb` is deliberately costly to the client.
+They are here because a test suite should cover techniques that exist, not
+because they are all advisable. On a production site, prefer guard 47's
+proportional escalation over any blanket block, and keep an accessible path.
 
 ### A real finding from building this
 

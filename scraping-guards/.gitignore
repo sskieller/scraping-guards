@@ -1,3 +1,5 @@
 node_modules/
 test-results/
 playwright-report/
+# Guard 60 generates a CA + keys on demand — never commit private keys.
+certs/

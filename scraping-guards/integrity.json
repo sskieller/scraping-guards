@@ -1,0 +1,8 @@
+{
+  "antidebug.js": {
+    "sha256": "516fc10c31e71e525e09ebeeea40a3f086feb2e1f71113a1032d8b3e9b7c65a3",
+    "bytes": 4059
+  },
+  "generatedFrom": "src/antidebug.src.js",
+  "note": "Packing only — see the honesty note in tools/obfuscate.js"
+}

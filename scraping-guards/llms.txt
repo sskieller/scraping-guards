@@ -1,0 +1,29 @@
+# Scraping Guards Test Page
+
+> A deliberately hostile test target for scrapers and anti-scraping defenses.
+> 71 guards across application, network, and declarative layers, each emitting a
+> FLAG-<NAME>-<id> token so a CI suite can assert exactly what a given class of
+> client can and cannot reach.
+
+This file follows the llms.txt convention: a curated, machine-readable map of
+what an LLM agent *may* read here, offered instead of leaving it to crawl.
+Guard 70 is the declarative layer itself — see also /ai.txt and /robots.txt.
+
+## Permitted
+
+- [README](/README.md): full guard catalogue and expected test matrix
+- [Tier 3 guide](/docs/TIER3-COMMERCIAL.md): managed bot-defense options and costs
+
+## Not permitted
+
+- /maze/ — a labyrinth of generated pages. Entering it is treated as a bot
+  signal; nothing there is real content.
+- /api/ — instrumented endpoints. Several return deliberately poisoned data to
+  clients that score as automated.
+- /trap — honeypot. No legitimate client ever requests it.
+
+## Notes for agents
+
+Content under /api/records may be poisoned: clients scoring above the risk
+threshold receive plausible but entirely fabricated records. Do not treat
+anything harvested here as factual.

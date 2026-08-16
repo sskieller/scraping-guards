@@ -22,6 +22,8 @@ const { inspectHeaders, checkReferer } = require("./lib/headers");
 const session = require("./lib/session");
 const netstub = require("./lib/netstub");
 const ws = require("./lib/websocket");
+const mtls = require("./lib/mtls");
+const frontierRoutes = require("./routes-frontier");
 
 const PORT = Number(process.argv[2] || process.env.PORT || 8080);
 const ROOT = __dirname;
@@ -33,6 +35,8 @@ const MIME = {
   ".txt": "text/plain; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".woff2": "font/woff2",
+  ".png": "image/png",
+  ".wasm": "application/wasm",
 };
 
 /* ---------------------------------------------------------------- *
@@ -94,12 +98,53 @@ function parseJson(raw) { try { return JSON.parse(raw); } catch (_) { return nul
  * response, so any scraper pinned to a CSS class or id breaks immediately. */
 function randomizeDom(html, identity) {
   const cache = new Map();
-  return html
+  let out = html
     .replace(/__RND(\d+)__/g, (_, n) => {
       if (!cache.has(n)) cache.set(n, "x" + crypto.randomBytes(5).toString("hex"));
       return cache.get(n);
     })
-    .replace(/__CANARY__/g, canaryFor(identity)); // guard 41
+    .replace(/__CANARY__/g, canaryFor(identity))  // guard 41
+    .replace(/__SID__/g, crypto.randomBytes(8).toString("hex")); // guard 48 session id
+
+  /* Guard 57: fragment the value across randomly-sized spans and interleave
+   * hidden decoys. Concatenating all text nodes yields the decoys too; only
+   * respecting CSS visibility recovers the real string. */
+  out = out.replace(/__FRAGMENT__/g, () => {
+    const value = "FLAG-FRAGMENT-d71a";
+    const parts = [];
+    let i = 0;
+    while (i < value.length) {
+      const len = 1 + (crypto.randomBytes(1)[0] % 3);
+      parts.push(value.slice(i, i + len));
+      i += len;
+    }
+    return parts
+      .map((frag) => {
+        const decoy = crypto.randomBytes(2).toString("hex").toUpperCase();
+        return `<span>${frag}</span><span class="decoy">${decoy}</span>`;
+      })
+      .join("");
+  });
+
+  /* Guard 58: wrap the marked block in a random nesting depth with randomly
+   * ordered attributes, so no structural selector generalises across responses. */
+  out = out.replace(/<!--SSRVARIANT-->([\s\S]*?)<!--\/SSRVARIANT-->/g, (_, inner) => {
+    const depth = 1 + (crypto.randomBytes(1)[0] % 3);
+    let wrapped = inner;
+    for (let d = 0; d < depth; d++) {
+      const id = "w" + crypto.randomBytes(3).toString("hex");
+      const attrs = [`id="${id}"`, `data-layer="${d}"`, `class="lvl${d}"`];
+      // Shuffle attribute order too — some scrapers match on raw attribute strings.
+      for (let k = attrs.length - 1; k > 0; k--) {
+        const j = crypto.randomBytes(1)[0] % (k + 1);
+        [attrs[k], attrs[j]] = [attrs[j], attrs[k]];
+      }
+      wrapped = `<div ${attrs.join(" ")}>${wrapped}</div>`;
+    }
+    return wrapped;
+  });
+
+  return out;
 }
 
 /* ---------------------------------------------------------------- *
@@ -337,6 +382,9 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  /* ============ TIER 1b + 2 GUARDS (47-71) ============ */
+  if (await frontierRoutes(req, res, { url, ip, identity })) return;
+
   /* ===================== STATIC FILES ===================== */
   const rel = p === "/" ? "/index.html" : p;
   const filePath = path.join(ROOT, path.normalize(rel).replace(/^(\.\.[/\\])+/, ""));
@@ -346,7 +394,7 @@ const server = http.createServer(async (req, res) => {
     if (err) return send(res, 404, "not found");
     const ext = path.extname(filePath);
     // advanced.html is templated per request (guards 31 + 41).
-    if (ext === ".html" && /advanced\.html$/.test(filePath)) {
+    if (ext === ".html" && /(advanced|frontier)\.html$/.test(filePath)) {
       return send(res, 200, randomizeDom(data.toString("utf8"), identity), MIME[".html"]);
     }
     send(res, 200, data, MIME[ext] || "application/octet-stream");
@@ -371,3 +419,12 @@ ws.attach(server, {
 });
 
 server.listen(PORT, () => console.log(`scraping-guards server on http://localhost:${PORT}`));
+
+/* Guard 60: mutual-TLS listener on PORT+1. Skipped (with a notice) when openssl
+ * is unavailable, so the main suite still runs. */
+const MTLS_PORT = PORT + 1;
+if (mtls.start(MTLS_PORT)) {
+  console.log(`mTLS listener on https://localhost:${MTLS_PORT} (client cert required)`);
+} else {
+  console.log("mTLS listener skipped: openssl unavailable");
+}

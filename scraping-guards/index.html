@@ -91,7 +91,9 @@
 
   <section data-guard="shadow-dom">
     <h2>5. Shadow DOM encapsulation</h2>
-    <p>Content lives in a closed-ish shadow root, outside the light DOM.</p>
+    <p>Content lives in an open shadow root — outside the light DOM, so a flat
+       HTML parse misses it, though <code>.shadowRoot</code> still reaches it.
+       <code>mode: "closed"</code> would also hide it from page script.</p>
     <div id="shadow-host"></div>
   </section>
 

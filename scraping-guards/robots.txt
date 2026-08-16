@@ -1,8 +1,42 @@
 # GUARD: robots.txt — declares scraping policy. Compliant crawlers obey; the
-# /trap path is a honeypot that no legitimate crawler should ever request.
+# /trap and /maze paths are honeypots that no legitimate crawler should request.
 User-agent: *
 Disallow: /trap
+Disallow: /maze
 Disallow: /api/
 Crawl-delay: 10
 
 # Any request to /trap (see the honeypot link on index.html) is treated as a bot.
+# /maze is an infinite generated labyrinth (guard 52) — entering it means the
+# client ignored this file, which is itself a high-confidence signal.
+
+# --- Guard 70: AI / TDM declarative layer ---
+# See also /ai.txt (policy) and /llms.txt (curated map for LLM agents).
+# Content Signals Policy — machine-readable statement of permitted uses:
+# search=yes, ai-input=no, ai-train=no
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+User-agent: Applebot-Extended
+Disallow: /
