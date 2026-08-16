@@ -142,6 +142,18 @@ test.describe("server-side guards", () => {
     await ctx.dispose();
   });
 
+  // Off-screen hiding is still announced by screen readers and reachable by
+  // keyboard, so both honeypots must be explicitly removed from the
+  // accessibility tree — otherwise an assistive-tech user trips the trap.
+  test("both honeypots are hidden from assistive tech, not just visually", async ({ page }) => {
+    await page.goto(BASE + "/index.html");
+    for (const sel of ['a.honeypot', 'input.honeypot']) {
+      const el = page.locator(sel);
+      await expect(el, `${sel} must be aria-hidden`).toHaveAttribute("aria-hidden", "true");
+      await expect(el, `${sel} must be unreachable by keyboard`).toHaveAttribute("tabindex", "-1");
+    }
+  });
+
   test("honeypot form field rejects filled bot submissions", async () => {
     const ctx = await request.newContext();
     const bot = await ctx.post(BASE + "/submit", { form: { name: "x", website: "http://spam" } });

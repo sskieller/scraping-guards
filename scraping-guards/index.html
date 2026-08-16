@@ -157,7 +157,15 @@
   <section data-guard="honeypot-link">
     <h2>14. Honeypot link</h2>
     <p>Off-screen link no human sees. Following it flags a bot.</p>
-    <a class="honeypot" href="/trap?flag=FLAG-TRAP-DONOTFOLLOW" rel="nofollow">do not follow</a>
+    <!-- aria-hidden + tabindex=-1 are REQUIRED here. `.honeypot` hides this
+         off-screen (left:-9999px), which is the classic "visually hidden"
+         technique — screen readers still announce it and keyboards can still
+         tab to it. Without these attributes an assistive-tech user can reach
+         the trap and get themselves classified as a bot. `display:none` would
+         hide it from AT for free, but scrapers routinely filter display:none,
+         so it makes a much weaker trap. Off-screen + aria-hidden gets both. -->
+    <a class="honeypot" href="/trap?flag=FLAG-TRAP-DONOTFOLLOW" rel="nofollow"
+       tabindex="-1" aria-hidden="true">do not follow</a>
     <span>(a well-behaved scraper never requests <code>/trap</code>)</span>
   </section>
 

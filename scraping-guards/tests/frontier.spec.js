@@ -454,8 +454,12 @@ test.describe("66-68. Passive signals", () => {
 /* ================= 69. Fingerprint surfaces ================= */
 test("69. extended fingerprint surfaces are collected", async ({ page }) => {
   await page.goto(BASE + "/frontier.html");
-  const text = await page.locator("#fpsurface-out").textContent({ timeout: 15_000 });
-  expect(text).toContain("FLAG-FPSURFACE-4a8e");
+  // textContent() resolves as soon as the element EXISTS, so it can read the
+  // "[checking…]" placeholder before the async collection finishes. Assert
+  // with toContainText first — that retries — then read the settled value.
+  const out = page.locator("#fpsurface-out");
+  await expect(out).toContainText("FLAG-FPSURFACE-4a8e", { timeout: 15_000 });
+  const text = await out.textContent();
   for (const key of ["fonts=", "codecs=", "voices=", "timerRes=", "webgpu="]) {
     expect(text, `missing ${key}`).toContain(key);
   }
