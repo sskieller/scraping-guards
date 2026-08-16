@@ -7,7 +7,12 @@ module.exports = defineConfig({
   testDir: "./tests",
   timeout: 30_000,
   fullyParallel: false, // rate-limit test is stateful; keep it serial
-  reporter: process.env.CI ? [["list"], ["github"]] : "list",
+  // The html reporter is what produces playwright-report/, which CI uploads as
+  // an artifact — without it the upload step finds nothing. `open: never` keeps
+  // it from trying to launch a browser on the runner.
+  reporter: process.env.CI
+    ? [["list"], ["github"], ["html", { open: "never" }]]
+    : "list",
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",

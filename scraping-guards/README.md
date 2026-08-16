@@ -35,7 +35,7 @@ test can assert exactly what a given class of client can and cannot reach.
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test                 # boots server.js, runs all 55 tests
+npm test                 # boots server.js, runs all 56 tests
 
 npm run serve            # http://localhost:8080  → index.html
                          # http://localhost:8080/advanced.html → tiers 1 & 2
