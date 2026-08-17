@@ -82,4 +82,34 @@ function verifyPrivateAccessToken(header) {
   };
 }
 
-module.exports = { login, consume, quotaFor, verifyAttestation, verifyPrivateAccessToken, USERS, apiKeys };
+/* --- Guard 74: tiered field-level granularity --------------------------
+ * Quota alone caps how MUCH a scraper takes. This caps how MUCH DETAIL any
+ * given account can see at all, so farming free accounts yields a strictly
+ * poorer dataset no matter how many you register — the expensive fields are
+ * simply never in the response. Enforced server-side by projection, never by
+ * hiding fields in the client.
+ */
+const PLAN_FIELDS = {
+  anonymous: ["id", "name"],
+  free: ["id", "name", "quarter"],
+  pro: ["id", "name", "quarter", "value", "margin", "forecast"],
+};
+
+function planFor(apiKey) {
+  const rec = apiKeys.get(apiKey);
+  return rec ? rec.plan : "anonymous";
+}
+
+function project(records, plan) {
+  const allowed = PLAN_FIELDS[plan] || PLAN_FIELDS.anonymous;
+  return records.map((rec) => {
+    const out = {};
+    for (const f of allowed) if (f in rec) out[f] = rec[f];
+    return out;
+  });
+}
+
+module.exports = {
+  login, consume, quotaFor, verifyAttestation, verifyPrivateAccessToken,
+  planFor, project, PLAN_FIELDS, USERS, apiKeys,
+};

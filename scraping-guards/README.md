@@ -1,7 +1,7 @@
 # Scraping Guards Test Page
 
 A self-contained target for testing scrapers and anti-scraping defenses in CI.
-**71 guards** (plus one control), each emitting a `FLAG-<NAME>-<id>` token so a
+**74 guards** (plus one control), each emitting a `FLAG-<NAME>-<id>` token so a
 test can assert exactly what a given class of client can and cannot reach.
 
 Point your scraper at it and see how far it gets. Or lift the guards and test
@@ -11,7 +11,7 @@ your own defenses against them.
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test          # boots server.js, runs all 91 tests
+npm test          # boots server.js, runs all 99 tests
 npm run serve     # http://localhost:8080
 ```
 
@@ -19,7 +19,7 @@ npm run serve     # http://localhost:8080
 | --- | --- | --- |
 | [`index.html`](index.html) | 0–25 | Obfuscation, honeypots, basic bot detection |
 | [`advanced.html`](advanced.html) | 26–46 | Challenges, crypto, transports, fingerprint stubs |
-| [`frontier.html`](frontier.html) | 47–71 | Risk engine, adversarial responses, identity, API shape |
+| [`frontier.html`](frontier.html) | 47–74 | Risk engine, adversarial responses, identity, API shape |
 
 ---
 
@@ -107,6 +107,9 @@ those has been caught, not succeeded.
 | 69 | `fingerprint-surfaces` | real | Fonts, codecs, voices, timer resolution, WebGPU, clock skew | `FLAG-FPSURFACE-4a8e` | A full stealth profile |
 | 70 | `ai-declarative` | real | `ai.txt`, `llms.txt`, robots AI blocks, `noai` meta, TDM reservation | `FLAG-AIDECLARE-2f70` | *(Declaration, not enforcement)* |
 | 71 | `quic-fingerprint` | sim | HTTP/3 QUIC. Real: transport params via an HTTP/3 terminator | `FLAG-QUICFP-ok` / `-BOT` | Speaking browser-shaped QUIC |
+| 72 | `data-perturbation` | real | **Real** records returned with small deterministic drift — right shape, right magnitudes, quietly wrong | *(no flag — that is the point)* | Reconciling against a trusted source |
+| 73 | `per-char-render` | real | Every character drawn to its own canvas, DOM order shuffled, CSS `order` restores it | `FLAG-PERCHAR-5e88` | OCR **plus** honouring CSS order |
+| 74 | `tiered-access` | real | Field-level projection by plan — premium fields absent below `pro`, not hidden | `FLAG-TIERED-b7c2` | Paying for a `pro` account |
 
 ### Forcing a verdict on the simulated guards
 
@@ -165,7 +168,7 @@ the **block** band.
 | `tools/make-wasm.js` | Hand-assembles the wasm module (51) |
 | `tools/obfuscate.js` | Packs the bundle + writes `integrity.json` (50) |
 | `ai.txt`, `llms.txt`, `robots.txt` | Declarative layer (70) |
-| `tests/*.spec.js` | 91 Playwright tests across all guards |
+| `tests/*.spec.js` | 99 Playwright tests across all guards |
 | `docs/TIER3-COMMERCIAL.md` | Managed bot-defense options and costs |
 
 ### Regenerating build artifacts
@@ -196,7 +199,15 @@ and per-session VMs. It raises the cost of a first look; it will not stop a
 determined analyst, and nothing that runs in the client ever can. The honesty
 note lives in `tools/obfuscate.js` and a test asserts it stays there.
 
-**3. Several guards harm real users.** `anti-copy` (24), `canvas-text` (4),
+**3. This test target undercuts its own guard 31.** Every section here carries a
+stable `data-guard="…"` attribute, and guard 31 randomizes class and attribute
+names precisely so that selectors like that stop working. The attributes exist
+because the test suite needs a reliable way to find each guard — but a real site
+following this repo's own advice would not ship them. If you lift these guards,
+drop the `data-guard` hooks; leaving stable selectors in place hands a scraper
+exactly what guard 31 is trying to take away.
+
+**4. Several guards harm real users.** `anti-copy` (24), `canvas-text` (4),
 `pixel-text` (56), `glyph-font` (28) and `sprite-digits` (55) are invisible or
 useless to screen readers; `compression-bomb` (53) is deliberately costly to the
 client. They are here because a test target should cover techniques that exist,
@@ -224,6 +235,6 @@ would false-positive on real browsers.
 
 ## CI
 
-`.github/workflows/scraping-guards.yml` runs all 91 tests on push and PR. Tests
+`.github/workflows/scraping-guards.yml` runs all 99 tests on push and PR. Tests
 are serial (`fullyParallel: false`) because the rate-limit, quota and connection
 guards are stateful.

@@ -183,6 +183,56 @@ module.exports = async function frontierRoutes(req, res, ctx) {
       records: labyrinth.poisonedRecords(identity, 4) }), true;
   }
 
+  /* ============ Guard 72: subtle perturbation ============ */
+  // The catalogue a competitor would actually want to scrape.
+  const CATALOGUE = [
+    { sku: "A-100", name: "widget-standard", price: 249.0, stockLevel: 120, inStock: true },
+    { sku: "A-220", name: "widget-pro", price: 899.5, stockLevel: 14, inStock: true },
+    { sku: "B-040", name: "gasket-set", price: 39.95, stockLevel: 0, inStock: false },
+  ];
+  if (p === "/api/prices") {
+    const extra = (q.get("signals") || "").split(",").filter(Boolean);
+    const verdict = risk.score([...risk.serverSignals(req, { ip }), ...extra]);
+    if (verdict.action === "allow") {
+      return json(res, 200, { records: CATALOGUE, flag: "FLAG-PRICES-REAL-c40f" }), true;
+    }
+    // Same shape, same magnitudes, quietly wrong — and no marker to notice.
+    return json(res, 200, { records: labyrinth.perturbRecords(CATALOGUE, identity) }), true;
+  }
+
+  /* ============ Guard 73: per-character rendering ============ */
+  // Facebook's approach: every CHARACTER is its own drawn element, and the DOM
+  // order is shuffled. Even an OCR pass over individual elements yields the
+  // characters out of order unless CSS `order` is applied.
+  if (p === "/api/perchar") {
+    const PLAIN = "FLAG-PERCHAR-5e88";
+    const slots = [...PLAIN].map((ch, i) => ({ order: i, code: ch.charCodeAt(0) ^ 0x5a }));
+    // Shuffle the delivery order deterministically per request.
+    for (let i = slots.length - 1; i > 0; i--) {
+      const j = crypto.randomBytes(1)[0] % (i + 1);
+      [slots[i], slots[j]] = [slots[j], slots[i]];
+    }
+    return json(res, 200, { slots, note: "codes are XOR 0x5A; `order` restores reading order" }), true;
+  }
+
+  /* ============ Guard 74: tiered field-level access ============ */
+  if (p === "/api/tiered") {
+    const key = req.headers["x-api-key"];
+    const plan = accounts.planFor(key);
+    const records = [
+      { id: "R-1", name: "alpha", quarter: "Q1", value: 1200.5, margin: 0.32, forecast: 1450.0 },
+      { id: "R-2", name: "beta", quarter: "Q2", value: 980.25, margin: 0.28, forecast: 1100.0 },
+    ];
+    const projected = accounts.project(records, plan);
+    return json(res, 200, {
+      plan,
+      fields: accounts.PLAN_FIELDS[plan] || accounts.PLAN_FIELDS.anonymous,
+      records: projected,
+      // The premium fields are never in the response at any tier below pro.
+      flag: plan === "pro" ? "FLAG-TIERED-b7c2" : `FLAG-TIERED-LIMITED-${plan}`,
+    }), true;
+  }
+
   /* ============ Guard 59: accounts, quota, device binding ============ */
   if (p === "/api/auth/login" && req.method === "POST") {
     const b = parseJson(await readBody(req)) || {};

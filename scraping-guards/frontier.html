@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow, noai, noimageai" />
   <meta name="tdm-reservation" content="1" />
   <meta name="tdm-policy" content="/tdm-policy.json" />
-  <title>Scraping Guards — Frontier (47–71)</title>
+  <title>Scraping Guards — Frontier (47–74)</title>
   <link rel="stylesheet" href="/assets/frontier.css?sid=__SID__" />
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -32,9 +32,9 @@
   </style>
 </head>
 <body data-sid="__SID__">
-  <h1>Scraping Guards — Frontier (47–71)</h1>
+  <h1>Scraping Guards — Frontier (47–74)</h1>
   <p>
-    Guards 47–70 extend the suite past the original 46. Blue = architectural,
+    Guards 47–74 extend the suite past the original 46. Blue = architectural,
     orange = simulated stub. Base pages:
     <a href="index.html">index.html</a> (0–25),
     <a href="advanced.html">advanced.html</a> (26–46).
@@ -228,6 +228,35 @@
        terminator.</p>
     <output id="quic-out">[checking…]</output>
   </section>
+
+  <section data-guard="data-perturbation">
+    <h2>72. Subtle data perturbation</h2>
+    <p>Guard 54 fabricates whole records, which a scraper eventually notices —
+       nothing reconciles. This returns the <em>real</em> catalogue with small
+       deterministic drift: prices off by a few percent, stock flags sometimes
+       flipped. Right shape, right magnitudes, consistent across re-fetches.</p>
+    <p class="note">No marker field, unlike guard 54 — a marker is the one thing
+       that would give it away. Provenance comes from the canary (41) instead.</p>
+    <output id="perturb-out">[fetching…]</output>
+  </section>
+
+  <section data-guard="per-char-render">
+    <h2>73. Per-character rendering</h2>
+    <p>Every <em>character</em> is drawn into its own canvas, delivered in
+       shuffled DOM order, with CSS <code>order</code> restoring the reading
+       sequence. Even OCR over individual elements yields scrambled characters.</p>
+    <div id="perchar-wrap" style="display:flex"></div>
+    <output id="perchar-out">[loading…]</output>
+  </section>
+
+  <section data-guard="tiered-access">
+    <h2>74. Tiered field-level access</h2>
+    <p>Quota caps how <em>much</em> a scraper takes; this caps how much
+       <em>detail</em> any account can see. Farming free accounts yields a
+       strictly poorer dataset — premium fields are never in the response.</p>
+    <output id="tiered-out">[checking…]</output>
+  </section>
+
 
   <script src="antidebug.js"></script>
   <script src="guards-frontier.js"></script>

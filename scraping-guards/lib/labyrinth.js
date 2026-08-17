@@ -96,4 +96,39 @@ function poisonedRecords(identity, count = 5) {
   }));
 }
 
-module.exports = { mazePage, compressionBomb, poisonedRecords, rng };
+/* --- Guard 72: subtle perturbation -------------------------------------
+ * Guard 54 fabricates whole records, which a scraper can eventually spot:
+ * the values never reconcile with anything real. This instead returns the
+ * REAL records with small, deterministic drift applied — prices off by a few
+ * percent, stock flags occasionally flipped.
+ *
+ * That is meaner and much harder to detect. The data passes every sanity
+ * check: right shape, right order of magnitude, internally consistent across
+ * requests (the same scraper always sees the same drift, so re-fetching never
+ * reveals it). A competitor repricing against it is quietly wrong, and stays
+ * wrong. Reported real-world detection times run to months.
+ *
+ * Deliberately NO marker field, unlike guard 54 — a marker is the one thing
+ * that would give it away. Provenance comes from the canary (guard 41) instead.
+ */
+function perturbRecords(records, identity, { maxDriftPct = 4 } = {}) {
+  const r = rng("perturb:" + identity);
+  return records.map((rec) => {
+    const out = {};
+    for (const [k, v] of Object.entries(rec)) {
+      if (typeof v === "number") {
+        // Drift within ±maxDriftPct — small enough to look like normal movement.
+        const drift = (r() * 2 - 1) * (maxDriftPct / 100);
+        out[k] = Number((v * (1 + drift)).toFixed(2));
+      } else if (typeof v === "boolean") {
+        // Flip occasionally: false stock levels are as damaging as false prices.
+        out[k] = r() < 0.25 ? !v : v;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  });
+}
+
+module.exports = { mazePage, compressionBomb, poisonedRecords, perturbRecords, rng };

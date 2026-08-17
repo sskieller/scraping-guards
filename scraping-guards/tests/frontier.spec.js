@@ -498,6 +498,134 @@ test.describe("70. AI declarative layer", () => {
   });
 });
 
+/* ================= 72-74. Perturbation, per-char, tiering ================= */
+test.describe("72. Subtle data perturbation", () => {
+  const CLEAN = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0",
+    "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty",
+    Referer: BASE + "/frontier.html", "Accept-Language": "en-US",
+  };
+
+  test("clean clients get the genuine catalogue", async () => {
+    const r = await getJson("/api/prices", CLEAN);
+    expect(r.body.flag).toBe("FLAG-PRICES-REAL-c40f");
+    expect(r.body.records[0].price).toBe(249.0);
+  });
+
+  test("scored clients get drifted values that still look plausible", async () => {
+    const real = (await getJson("/api/prices", CLEAN)).body.records;
+    const bad = (await getJson("/api/prices", { "User-Agent": "python-requests/2.31.0" })).body.records;
+
+    // Same shape and key set — nothing structural gives it away.
+    expect(bad.length).toBe(real.length);
+    expect(Object.keys(bad[0]).sort()).toEqual(Object.keys(real[0]).sort());
+    // No marker field, unlike guard 54.
+    expect(JSON.stringify(bad)).not.toContain("_poison");
+    expect(JSON.stringify(bad)).not.toContain("FLAG");
+
+    // Values moved, but stayed within a plausible band (±4%).
+    let drifted = 0;
+    for (let i = 0; i < real.length; i++) {
+      if (bad[i].price !== real[i].price) drifted++;
+      const ratio = bad[i].price / real[i].price;
+      expect(ratio, `price ${i} drifted implausibly`).toBeGreaterThan(0.95);
+      expect(ratio).toBeLessThan(1.05);
+    }
+    expect(drifted, "at least some values must actually move").toBeGreaterThan(0);
+  });
+
+  test("drift is stable per client, so re-fetching never reveals it", async () => {
+    const ua = { "User-Agent": "python-requests/2.31.0" };
+    const a = (await getJson("/api/prices", ua)).body.records;
+    const b = (await getJson("/api/prices", ua)).body.records;
+    expect(a).toEqual(b);
+
+    // A different scraper identity gets different drift.
+    const c = (await getJson("/api/prices", { "User-Agent": "Scrapy/2.11" })).body.records;
+    expect(c).not.toEqual(a);
+  });
+});
+
+test.describe("73. Per-character rendering", () => {
+  test("characters are delivered shuffled and encoded, never as text", async () => {
+    const ctx = await request.newContext();
+    const html = await (await ctx.get(BASE + "/frontier.html")).text();
+    expect(html).not.toContain("FLAG-PERCHAR-5e88");
+
+    const { slots } = await (await ctx.get(BASE + "/api/perchar")).json();
+    // Decoding requires both the XOR and re-sorting by `order`.
+    const decoded = [...slots].sort((a, b) => a.order - b.order)
+      .map((s) => String.fromCharCode(s.code ^ 0x5a)).join("");
+    expect(decoded).toBe("FLAG-PERCHAR-5e88");
+
+    // Reading them in delivery order gives scrambled output.
+    const naive = slots.map((s) => String.fromCharCode(s.code ^ 0x5a)).join("");
+    expect(naive).not.toBe(decoded);
+    await ctx.dispose();
+  });
+
+  test("the browser renders one canvas per character", async ({ page }) => {
+    await page.goto(BASE + "/frontier.html");
+    await expect(page.locator("#perchar-out")).toContainText("single-character canvases", { timeout: 15_000 });
+    const canvases = page.locator("#perchar-wrap canvas");
+    await expect(canvases).toHaveCount("FLAG-PERCHAR-5e88".length);
+    // Every canvas must actually have ink on it.
+    const allDrawn = await page.evaluate(() =>
+      [...document.querySelectorAll("#perchar-wrap canvas")].every((c) => {
+        const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+        return d.some((v, i) => i % 4 === 3 && v !== 0);
+      })
+    );
+    expect(allDrawn).toBe(true);
+  });
+});
+
+test.describe("74. Tiered field-level access", () => {
+  test("premium fields are absent below the pro tier, not merely hidden", async () => {
+    const ctx = await request.newContext();
+    const anon = await (await ctx.get(BASE + "/api/tiered")).json();
+    expect(anon.plan).toBe("anonymous");
+    expect(anon.fields).toEqual(["id", "name"]);
+    // The expensive fields are simply not in the payload.
+    expect(JSON.stringify(anon.records)).not.toContain("margin");
+    expect(JSON.stringify(anon.records)).not.toContain("forecast");
+
+    const free = await (await ctx.post(BASE + "/api/auth/login", {
+      data: { username: "demo", password: "demo-password" },
+    })).json();
+    const freeData = await (await ctx.get(BASE + "/api/tiered", {
+      headers: { "X-API-Key": free.apiKey },
+    })).json();
+    expect(freeData.plan).toBe("free");
+    expect(JSON.stringify(freeData.records)).not.toContain("margin");
+
+    const pro = await (await ctx.post(BASE + "/api/auth/login", {
+      data: { username: "pro", password: "pro-password" },
+    })).json();
+    const proData = await (await ctx.get(BASE + "/api/tiered", {
+      headers: { "X-API-Key": pro.apiKey },
+    })).json();
+    expect(proData.plan).toBe("pro");
+    expect(proData.flag).toBe("FLAG-TIERED-b7c2");
+    expect(proData.records[0]).toHaveProperty("margin");
+    expect(proData.records[0]).toHaveProperty("forecast");
+    await ctx.dispose();
+  });
+
+  test("farming free accounts cannot reach premium fields", async () => {
+    const ctx = await request.newContext();
+    // Ten separate free accounts still yield the same impoverished projection.
+    for (let i = 0; i < 10; i++) {
+      const acct = await (await ctx.post(BASE + "/api/auth/login", {
+        data: { username: "demo", password: "demo-password", device: `dev-${i}` },
+      })).json();
+      const d = await (await ctx.get(BASE + "/api/tiered", { headers: { "X-API-Key": acct.apiKey } })).json();
+      expect(d.fields).not.toContain("margin");
+    }
+    await ctx.dispose();
+  });
+});
+
 /* ================= 71 + honesty guardrail ================= */
 test("71. QUIC stub declares itself simulated", async () => {
   const r = await getJson("/api/net/quic");

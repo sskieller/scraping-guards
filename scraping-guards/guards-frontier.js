@@ -225,6 +225,46 @@
       `\n  llms.txt: ${llms.length} bytes\n  robots.txt: ${blocked} named AI crawlers disallowed`);
   })();
 
+  /* --- 72. Subtle perturbation --- */
+  fetch("/api/prices").then(j).then((r) =>
+    out("perturb-out", r.flag
+      ? `${r.flag} — genuine catalogue`
+      : "perturbed (no marker, by design):\n  " +
+        r.records.map((x) => `${x.sku} ${x.price} stock=${x.stockLevel}/${x.inStock}`).join("\n  "))
+  );
+
+  /* --- 73. Per-character rendering --- */
+  (async function () {
+    const { slots } = await fetch("/api/perchar").then(j);
+    const wrap = document.getElementById("perchar-wrap");
+    if (!wrap) return;
+    // Slots arrive shuffled; CSS `order` is what makes them readable.
+    for (const slot of slots) {
+      const c = document.createElement("canvas");
+      c.width = 14; c.height = 22;
+      c.style.order = String(slot.order);
+      const ctx = c.getContext("2d");
+      ctx.font = "16px monospace";
+      ctx.fillStyle = "#2980b9";
+      ctx.fillText(String.fromCharCode(slot.code ^ 0x5a), 1, 16);
+      wrap.appendChild(c);
+    }
+    out("perchar-out", `${slots.length} single-character canvases, DOM order shuffled`);
+  })();
+
+  /* --- 74. Tiered field-level access --- */
+  (async function () {
+    const anon = await fetch("/api/tiered").then(j);
+    const login = await fetch("/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "pro", password: "pro-password" }),
+    }).then(j);
+    const pro = await fetch("/api/tiered", { headers: { "X-API-Key": login.apiKey } }).then(j);
+    out("tiered-out",
+      `anonymous → ${anon.fields.join(", ")}\n` +
+      `pro       → ${pro.fields.join(", ")}\n${pro.flag}`);
+  })();
+
   /* --- 71. QUIC stub --- */
   fetch("/api/net/quic").then(j).then((r) => out("quic-out", `${r.flag} negotiated=${r.negotiated} (simulated)`));
 })();
