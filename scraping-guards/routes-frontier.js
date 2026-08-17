@@ -10,6 +10,9 @@ const labyrinth = require("./lib/labyrinth");
 const apishape = require("./lib/apishape");
 const accounts = require("./lib/accounts");
 const pngtext = require("./lib/pngtext");
+const crawlers = require("./lib/crawlers");
+const enumeration = require("./lib/enumeration");
+const watermark = require("./lib/watermark");
 
 const ROOT = __dirname;
 
@@ -64,6 +67,15 @@ module.exports = async function frontierRoutes(req, res, ctx) {
   // The escalation ladder actually applied to a resource.
   if (p === "/api/risk/gated") {
     const extra = (q.get("signals") || "").split(",").filter(Boolean);
+    // Guard 75 first: an allowlisted crawler skips the ladder. Without this,
+    // turning the other guards up quietly blocks Googlebot.
+    const crawler = await crawlers.verify(ip, req.headers["user-agent"], {
+      simHostname: req.headers["x-sim-rdns"],
+    });
+    if (crawler.verified) {
+      return json(res, 200, { action: "allow", allowlisted: crawler.claimed,
+        reason: "forward-confirmed-crawler", flag: "FLAG-RISK-ALLOWLIST-7e02" }), true;
+    }
     const verdict = risk.score([...risk.serverSignals(req, { ip }), ...extra]);
     switch (verdict.action) {
       case "allow":
@@ -181,6 +193,81 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     // Plausible, deterministic, and completely false.
     return json(res, 200, { poisoned: false /* deliberately not advertised */,
       records: labyrinth.poisonedRecords(identity, 4) }), true;
+  }
+
+  /* ============ Guard 75: verified crawler allowlisting ============ */
+  if (p === "/api/crawler/verify") {
+    const r = await crawlers.verify(ip, req.headers["user-agent"], {
+      simHostname: req.headers["x-sim-rdns"], // test hook for the rDNS step
+    });
+    if (!r.claimed) return json(res, 200, Object.assign(r, { flag: "FLAG-CRAWLER-NOCLAIM" })), true;
+    return json(res, r.verified ? 200 : 403, Object.assign(r, {
+      flag: r.verified ? "FLAG-VERIFIEDBOT-9d14" : "FLAG-CRAWLER-SPOOFED",
+      note: r.verified
+        ? "Allowlisted: bypasses the risk ladder entirely."
+        : "UA claims a crawler the DNS does not back up.",
+    })), true;
+  }
+
+  /* ============ Guard 76: adaptive weights ============ */
+  if (p === "/api/risk/feedback" && req.method === "POST") {
+    const b = parseJson(await readBody(req)) || {};
+    risk.recordOutcome(b.signals, Boolean(b.confirmedBot));
+    return json(res, 200, { recorded: (b.signals || []).length, confirmedBot: Boolean(b.confirmedBot) }), true;
+  }
+  if (p === "/api/risk/weights") {
+    return json(res, 200, {
+      minObservations: risk.MIN_OBSERVATIONS, clamp: risk.CLAMP, weights: risk.weightTable(),
+    }), true;
+  }
+  if (p === "/api/risk/adaptive") {
+    const extra = (q.get("signals") || "").split(",").filter(Boolean);
+    return json(res, 200, risk.adaptiveScore([...risk.serverSignals(req, { ip }), ...extra])), true;
+  }
+  if (p === "/api/risk/reset-learning") {
+    risk.resetLearning();
+    return json(res, 200, { ok: true }), true;
+  }
+
+  /* ============ Guard 77: enumeration detection ============ */
+  if (p === "/api/item") {
+    const sid = q.get("sid") || "anon";
+    enumeration.record(sid, q.get("id") || "0");
+    return json(res, 200, { id: q.get("id"), name: `item-${q.get("id")}` }), true;
+  }
+  if (p === "/api/enumeration/score") {
+    const r = enumeration.analyse(q.get("sid") || "anon", { keyspaceSize: Number(q.get("keyspace") || 1000) });
+    return json(res, r.enumerating ? 403 : 200, Object.assign(r, {
+      flag: r.enumerating ? "FLAG-ENUMERATION-BOT" : "FLAG-ENUMERATION-8c31",
+      note: "Shape of what was requested, not the timing — survives perfect jitter and proxy rotation.",
+    })), true;
+  }
+  if (p === "/api/enumeration/reset") {
+    enumeration.reset(q.get("sid"));
+    return json(res, 200, { ok: true }), true;
+  }
+
+  /* ============ Guard 78: steganographic text watermarking ============ */
+  const ARTICLE =
+    "Quarterly revenue rose across every regional segment this period. " +
+    "Margin expansion outpaced the forecast, and inventory turned faster than in prior quarters.";
+  if (p === "/api/article") {
+    const account = req.headers["x-api-key"] || q.get("key") || "anonymous";
+    const marked = watermark.embed(ARTICLE, "acct:" + account.slice(0, 12));
+    return json(res, 200, {
+      text: marked,
+      flag: "FLAG-WATERMARK-4b90",
+      note: "The visible text is unchanged; the recipient id rides in zero-width characters.",
+    }), true;
+  }
+  if (p === "/api/watermark/extract" && req.method === "POST") {
+    const body = parseJson(await readBody(req)) || {};
+    const found = watermark.extract(body.text || "");
+    return json(res, found ? 200 : 404, {
+      recipient: found,
+      visibleText: watermark.strip(body.text || ""),
+      flag: found ? "FLAG-WATERMARK-TRACED" : "FLAG-WATERMARK-NONE",
+    }), true;
   }
 
   /* ============ Guard 72: subtle perturbation ============ */

@@ -265,6 +265,48 @@
       `pro       → ${pro.fields.join(", ")}\n${pro.flag}`);
   })();
 
+  /* --- 75. Verified crawler allowlisting --- */
+  (async function () {
+    // This browser makes no crawler claim, so show what each branch returns.
+    const none = await fetch("/api/crawler/verify").then(j);
+    out("crawler-out", `this client → ${none.flag} (${none.reason})\n` +
+      "a forged Googlebot UA fails at the forward-confirm step — see tests/frontier.spec.js");
+  })();
+
+  /* --- 76. Adaptive weights --- */
+  (async function () {
+    const w = await fetch("/api/risk/weights").then(j);
+    const moved = w.weights.filter((x) => x.multiplier !== 1);
+    out("adaptive-out",
+      `clamp ${w.clamp.min}x–${w.clamp.max}x, min ${w.minObservations} observations\n` +
+      (moved.length
+        ? moved.map((x) => `  ${x.signal}: ${x.base} → ${x.effective} (${x.multiplier}x)`).join("\n")
+        : "  no signal has enough observations yet — weights still at base"));
+  })();
+
+  /* --- 77. Enumeration detection --- */
+  (async function () {
+    const sid = "browse-" + SID;
+    // A human-shaped visit: a few scattered items, with revisits.
+    for (const id of [42, 7, 42, 91]) await fetch(`/api/item?sid=${sid}&id=${id}`);
+    const r = await fetch(`/api/enumeration/score?sid=${sid}`).then(j);
+    out("enum-out", `${r.flag} requests=${r.requests} unique=${r.unique} longestRun=${r.longestRun}` +
+      (r.signals.length ? `\n  signals: ${r.signals.join(", ")}` : ""));
+  })();
+
+  /* --- 78. Text watermarking --- */
+  (async function () {
+    const a = await fetch("/api/article").then(j);
+    const traced = await fetch("/api/watermark/extract", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: a.text }),
+    }).then(j);
+    const visible = traced.visibleText;
+    out("watermark-out",
+      `${a.flag}\n  visible chars: ${visible.length}, delivered chars: ${a.text.length}` +
+      `\n  copied text traces to: ${traced.recipient}`);
+  })();
+
   /* --- 71. QUIC stub --- */
   fetch("/api/net/quic").then(j).then((r) => out("quic-out", `${r.flag} negotiated=${r.negotiated} (simulated)`));
 })();

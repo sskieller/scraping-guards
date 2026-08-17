@@ -626,6 +626,199 @@ test.describe("74. Tiered field-level access", () => {
   });
 });
 
+/* ================= 75. Verified crawler allowlisting ================= */
+test.describe("75. Verified crawler allowlisting", () => {
+  const crawlers = require("../lib/crawlers");
+
+  test("a real forward-confirmed lookup verifies the crawler", async () => {
+    // Exercises the genuine DNS path: localhost always resolves to 127.0.0.1,
+    // so reverse -> suffix -> forward-confirm all run for real.
+    const r = await crawlers.verify("127.0.0.1", "SGTestBot/1.0", { simHostname: "localhost" });
+    expect(r.claimed).toBe("SGTestBot");
+    expect(r.verified).toBe(true);
+    expect(r.reason).toBe("forward-confirmed");
+  });
+
+  test("a forged Googlebot UA is rejected", async () => {
+    // Hostname does not belong to the operator.
+    const wrongHost = await crawlers.verify("127.0.0.1", "Googlebot/2.1", { simHostname: "localhost" });
+    expect(wrongHost.verified).toBe(false);
+    expect(wrongHost.reason).toBe("hostname-not-owned-by-operator");
+
+    // Operator-shaped hostname, but it will not forward-confirm to our IP.
+    // This is the case a rDNS-only check would wrongly accept.
+    const forgedPtr = await crawlers.verify("127.0.0.1", "Googlebot/2.1", {
+      simHostname: "crawl-66-249-66-1.googlebot.com",
+    });
+    expect(forgedPtr.verified).toBe(false);
+    expect(["forward-confirm-mismatch", "forward-lookup-failed"]).toContain(forgedPtr.reason);
+  });
+
+  test("clients making no crawler claim are simply not allowlisted", async () => {
+    const r = await crawlers.verify("127.0.0.1", "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0");
+    expect(r.claimed).toBeNull();
+    expect(r.verified).toBe(false);
+  });
+
+  test("the endpoint reports spoofed vs verified", async () => {
+    const spoof = await getJson("/api/crawler/verify", {
+      "User-Agent": "Googlebot/2.1", "X-Sim-RDNS": "localhost",
+    });
+    expect(spoof.status).toBe(403);
+    expect(spoof.body.flag).toBe("FLAG-CRAWLER-SPOOFED");
+
+    const ok = await getJson("/api/crawler/verify", {
+      "User-Agent": "SGTestBot/1.0", "X-Sim-RDNS": "localhost",
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.flag).toBe("FLAG-VERIFIEDBOT-9d14");
+  });
+
+  test("a verified crawler bypasses the risk ladder entirely", async () => {
+    // Same request shape that scores as "block" without the allowlist.
+    const blocked = await getJson("/api/risk/gated?signals=honeypot-link-followed");
+    expect(blocked.body.action).toBe("block");
+
+    const allowed = await getJson("/api/risk/gated?signals=honeypot-link-followed", {
+      "User-Agent": "SGTestBot/1.0", "X-Sim-RDNS": "localhost",
+    });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.action).toBe("allow");
+    expect(allowed.body.flag).toBe("FLAG-RISK-ALLOWLIST-7e02");
+  });
+});
+
+/* ================= 76. Adaptive weights ================= */
+test.describe("76. Adaptive risk weights", () => {
+  const risk = require("../lib/risk");
+  test.beforeEach(() => risk.resetLearning());
+
+  test("weights stay at base until there is enough evidence", () => {
+    risk.recordOutcome(["no-plugins"], true);
+    expect(risk.adaptiveMultiplier("no-plugins")).toBe(1); // below MIN_OBSERVATIONS
+    for (let i = 0; i < risk.MIN_OBSERVATIONS; i++) risk.recordOutcome(["no-plugins"], true);
+    expect(risk.adaptiveMultiplier("no-plugins")).toBeGreaterThan(1);
+  });
+
+  test("a signal that predicts bots gains weight; one that predicts humans loses it", () => {
+    for (let i = 0; i < 10; i++) risk.recordOutcome(["no-plugins"], true);
+    for (let i = 0; i < 10; i++) risk.recordOutcome(["no-referer"], false);
+
+    expect(risk.adaptiveMultiplier("no-plugins")).toBeCloseTo(1.5, 1);
+    expect(risk.adaptiveMultiplier("no-referer")).toBeCloseTo(0.5, 1);
+
+    const scored = risk.adaptiveScore(["no-plugins"]);
+    const base = risk.score(["no-plugins"]);
+    expect(scored.score).toBeGreaterThan(base.score);
+    expect(scored.adaptive).toBe(true);
+  });
+
+  test("poisoned feedback cannot drive a weight outside the clamp", () => {
+    for (let i = 0; i < 5000; i++) risk.recordOutcome(["no-plugins"], true);
+    const m = risk.adaptiveMultiplier("no-plugins");
+    expect(m).toBeLessThanOrEqual(risk.CLAMP.max);
+    expect(m).toBeGreaterThanOrEqual(risk.CLAMP.min);
+    // Even maximally boosted, one weak signal must not reach the block band.
+    expect(risk.adaptiveScore(["no-plugins"]).action).toBe("allow");
+  });
+
+  test("a honeypot hit labels the co-occurring signals automatically", async () => {
+    const ctx = await request.newContext();
+    await ctx.get(BASE + "/api/risk/reset-learning");
+    // A python-requests UA walking into the honeypot: conclusive bot evidence.
+    const bot = await request.newContext({ extraHTTPHeaders: { "User-Agent": "python-requests/2.31.0" } });
+    for (let i = 0; i < 6; i++) await bot.get(BASE + "/trap");
+
+    const w = await (await ctx.get(BASE + "/api/risk/weights")).json();
+    const learned = w.weights.find((x) => x.signal === "http-library-ua");
+    expect(learned.observations.bot).toBeGreaterThanOrEqual(6);
+    expect(learned.multiplier).toBeGreaterThan(1); // it earned its weight
+    await bot.dispose();
+    await ctx.dispose();
+  });
+});
+
+/* ================= 77. Enumeration detection ================= */
+test.describe("77. Enumeration detection", () => {
+  test("sequential ID walking is caught regardless of timing", async () => {
+    const ctx = await request.newContext();
+    const sid = "enum-bot-" + crypto.randomBytes(4).toString("hex");
+    for (let id = 1; id <= 12; id++) await ctx.get(`${BASE}/api/item?sid=${sid}&id=${id}`);
+    const r = await ctx.get(`${BASE}/api/enumeration/score?sid=${sid}`);
+    expect(r.status()).toBe(403);
+    const body = await r.json();
+    expect(body.flag).toBe("FLAG-ENUMERATION-BOT");
+    expect(body.signals).toContain("sequential-enumeration");
+    expect(body.longestRun).toBe(12);
+    await ctx.dispose();
+  });
+
+  test("broad keyspace coverage is caught even when shuffled", async () => {
+    const ctx = await request.newContext();
+    const sid = "enum-cover-" + crypto.randomBytes(4).toString("hex");
+    // 30 scattered ids out of a 100-key space — no sequential run at all.
+    const ids = [...Array(30).keys()].map((i) => (i * 7) % 100);
+    for (const id of ids) await ctx.get(`${BASE}/api/item?sid=${sid}&id=${id}`);
+    const body = await (await ctx.get(`${BASE}/api/enumeration/score?sid=${sid}&keyspace=100`)).json();
+    expect(body.signals).toContain("keyspace-coverage");
+    expect(body.enumerating).toBe(true);
+    await ctx.dispose();
+  });
+
+  test("scattered human browsing with revisits is not flagged", async () => {
+    const ctx = await request.newContext();
+    const sid = "enum-human-" + crypto.randomBytes(4).toString("hex");
+    for (const id of [42, 7, 42, 91, 7]) await ctx.get(`${BASE}/api/item?sid=${sid}&id=${id}`);
+    const r = await ctx.get(`${BASE}/api/enumeration/score?sid=${sid}`);
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.flag).toBe("FLAG-ENUMERATION-8c31");
+    expect(body.enumerating).toBe(false);
+    await ctx.dispose();
+  });
+});
+
+/* ================= 78. Text watermarking ================= */
+test.describe("78. Steganographic text watermarking", () => {
+  const watermark = require("../lib/watermark");
+
+  test("the visible text is unchanged but carries the recipient", async () => {
+    const ctx = await request.newContext();
+    const a = await (await ctx.get(BASE + "/api/article?key=alice-key")).json();
+    const b = await (await ctx.get(BASE + "/api/article?key=bob-key")).json();
+
+    // Readers see identical prose...
+    expect(watermark.strip(a.text)).toBe(watermark.strip(b.text));
+    // ...but the delivered bytes differ, and each traces to its recipient.
+    expect(a.text).not.toBe(b.text);
+    expect(watermark.extract(a.text)).toBe("acct:alice-key");
+    expect(watermark.extract(b.text)).toBe("acct:bob-key");
+    await ctx.dispose();
+  });
+
+  test("the mark survives a copy-paste and a naive HTML strip", async () => {
+    const ctx = await request.newContext();
+    const a = await (await ctx.get(BASE + "/api/article?key=carol-key")).json();
+
+    // Simulate "copied into a CMS and re-published inside markup".
+    const republished = `<article><p>${a.text}</p></article>`.replace(/<[^>]+>/g, "");
+    const traced = await ctx.post(BASE + "/api/watermark/extract", { data: { text: republished } });
+    expect(traced.status()).toBe(200);
+    expect((await traced.json()).recipient).toBe("acct:carol-key");
+    await ctx.dispose();
+  });
+
+  test("normalisation removes it — stated honestly, not hidden", async () => {
+    const ctx = await request.newContext();
+    const a = await (await ctx.get(BASE + "/api/article?key=dave-key")).json();
+    const scrubbed = watermark.strip(a.text); // any zero-width normalisation
+    const r = await ctx.post(BASE + "/api/watermark/extract", { data: { text: scrubbed } });
+    expect(r.status()).toBe(404);
+    expect((await r.json()).flag).toBe("FLAG-WATERMARK-NONE");
+    await ctx.dispose();
+  });
+});
+
 /* ================= 71 + honesty guardrail ================= */
 test("71. QUIC stub declares itself simulated", async () => {
   const r = await getJson("/api/net/quic");

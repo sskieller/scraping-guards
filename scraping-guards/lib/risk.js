@@ -114,4 +114,80 @@ function serverSignals(req, { ip = "", subresourcesSeen = true, conditional = tr
   return out;
 }
 
-module.exports = { score, serverSignals, actionFor, WEIGHTS, LADDER };
+/* ===================== Guard 76: adaptive weights =====================
+ * The weights above are my guesses. Real systems learn theirs, because a
+ * signal's value drifts: a tell that was conclusive last year becomes noise
+ * once every stealth library patches it.
+ *
+ * The conclusive guards are the labeller. A honeypot hit (guard 14/15) is
+ * ground truth — no human can trigger one — so whenever one fires we can
+ * record every OTHER signal that co-occurred and learn which ones actually
+ * predict automation. Signals that keep showing up alongside confirmed bots
+ * gain weight; signals that keep showing up on confirmed humans lose it.
+ *
+ * Two safety rails, both deliberate:
+ *   - adjustment is clamped to [0.5x, 1.5x] of the hand-set base weight, so a
+ *     poisoned feedback stream cannot drive a signal to dominate or vanish;
+ *   - a signal needs MIN_OBSERVATIONS before it moves at all, so one unlucky
+ *     session cannot reweight the system.
+ */
+const CLAMP = { min: 0.5, max: 1.5 };
+const MIN_OBSERVATIONS = 5;
+
+// signal -> {bot, human}
+const observations = new Map();
+
+function recordOutcome(signals, confirmedBot) {
+  for (const s of new Set(Array.isArray(signals) ? signals : [])) {
+    const rec = observations.get(s) || { bot: 0, human: 0 };
+    if (confirmedBot) rec.bot++; else rec.human++;
+    observations.set(s, rec);
+  }
+}
+
+/* Precision: of the times we saw this signal and later learned the truth, how
+ * often was it a bot? 0.5 is uninformative and leaves the weight unchanged. */
+function adaptiveMultiplier(signal) {
+  const rec = observations.get(signal);
+  if (!rec) return 1;
+  const total = rec.bot + rec.human;
+  if (total < MIN_OBSERVATIONS) return 1;
+  const precision = rec.bot / total;
+  const raw = 1 + (precision - 0.5) * 2 * 0.5; // precision 1.0 -> 1.5x, 0.0 -> 0.5x
+  return Math.min(CLAMP.max, Math.max(CLAMP.min, raw));
+}
+
+function adaptiveScore(signals, opts = {}) {
+  const base = score(signals, opts);
+  let total = 0;
+  const breakdown = base.breakdown.map((b) => {
+    const mult = adaptiveMultiplier(b.signal);
+    const weight = Math.round(b.weight * mult);
+    total += weight;
+    const rec = observations.get(b.signal) || { bot: 0, human: 0 };
+    return { ...b, baseWeight: b.weight, multiplier: Number(mult.toFixed(2)), weight, observations: rec };
+  });
+  const capped = Math.min(total, 100);
+  const rung = actionFor(capped);
+  return {
+    score: capped, rawScore: total, action: rung.action, description: rung.description,
+    breakdown, adaptive: true, baseScore: base.score,
+  };
+}
+
+function weightTable() {
+  return Object.entries(WEIGHTS).map(([signal, base]) => ({
+    signal, base,
+    multiplier: Number(adaptiveMultiplier(signal).toFixed(2)),
+    effective: Math.round(base * adaptiveMultiplier(signal)),
+    observations: observations.get(signal) || { bot: 0, human: 0 },
+  }));
+}
+
+function resetLearning() { observations.clear(); }
+
+module.exports = {
+  score, serverSignals, actionFor, WEIGHTS, LADDER,
+  recordOutcome, adaptiveScore, adaptiveMultiplier, weightTable, resetLearning,
+  MIN_OBSERVATIONS, CLAMP,
+};

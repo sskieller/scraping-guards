@@ -24,6 +24,7 @@ const netstub = require("./lib/netstub");
 const ws = require("./lib/websocket");
 const mtls = require("./lib/mtls");
 const frontierRoutes = require("./routes-frontier");
+const risk = require("./lib/risk");
 
 const PORT = Number(process.argv[2] || process.env.PORT || 8080);
 const ROOT = __dirname;
@@ -159,7 +160,13 @@ const server = http.createServer(async (req, res) => {
   /* ===================== ORIGINAL GUARDS (1-25) ===================== */
 
   // Guard 14: honeypot trap.
-  if (p === "/trap") return send(res, 403, "BOT DETECTED (honeypot). FLAG-TRAP-DONOTFOLLOW\n");
+  if (p === "/trap") {
+    // Guard 76: a honeypot hit is ground truth — no human reaches this URL.
+    // Label every other signal present on this request so the adaptive weights
+    // learn which ones actually predict automation.
+    risk.recordOutcome(risk.serverSignals(req, { ip }), true);
+    return send(res, 403, "BOT DETECTED (honeypot). FLAG-TRAP-DONOTFOLLOW\n");
+  }
 
   // Guard 22: static token gate.
   if (p === "/api/protected") {
@@ -178,6 +185,9 @@ const server = http.createServer(async (req, res) => {
   // Guard 15: honeypot form field.
   if (p === "/submit" && req.method === "POST") {
     const filled = new URLSearchParams(await readBody(req)).get("website");
+    // Guard 76: both branches are labelled — a clean submission is evidence of
+    // a human just as a filled honeypot is evidence of a bot.
+    risk.recordOutcome(risk.serverSignals(req, { ip }), Boolean(filled));
     if (filled) return send(res, 400, "BOT DETECTED (honeypot field). FLAG-HPFIELD-BOT\n");
     return send(res, 200, "accepted");
   }

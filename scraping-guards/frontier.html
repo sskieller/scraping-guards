@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow, noai, noimageai" />
   <meta name="tdm-reservation" content="1" />
   <meta name="tdm-policy" content="/tdm-policy.json" />
-  <title>Scraping Guards — Frontier (47–74)</title>
+  <title>Scraping Guards — Frontier (47–78)</title>
   <link rel="stylesheet" href="/assets/frontier.css?sid=__SID__" />
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -32,9 +32,9 @@
   </style>
 </head>
 <body data-sid="__SID__">
-  <h1>Scraping Guards — Frontier (47–74)</h1>
+  <h1>Scraping Guards — Frontier (47–78)</h1>
   <p>
-    Guards 47–74 extend the suite past the original 46. Blue = architectural,
+    Guards 47–78 extend the suite past the original 46. Blue = architectural,
     orange = simulated stub. Base pages:
     <a href="index.html">index.html</a> (0–25),
     <a href="advanced.html">advanced.html</a> (26–46).
@@ -257,6 +257,50 @@
     <output id="tiered-out">[checking…]</output>
   </section>
 
+
+  <section class="arch" data-guard="verified-crawler">
+    <h2>75. Verified crawler allowlisting</h2>
+    <p>The counterpart to guard 47: every other guard blocks, this one lets the
+       <em>right</em> bots through. A <code>Googlebot</code> UA is trivially
+       forged, so it is verified by <strong>forward-confirmed reverse DNS</strong>
+       — rDNS to a hostname, hostname must belong to the operator, then a
+       forward lookup must resolve back to the same IP.</p>
+    <p class="note">Skipping the forward-confirm is the classic mistake: an
+       attacker controlling their own rDNS can claim any hostname, but cannot
+       make Google's DNS resolve it back to them. Fails closed on any DNS error.</p>
+    <output id="crawler-out">[checking…]</output>
+  </section>
+
+  <section class="arch" data-guard="adaptive-risk">
+    <h2>76. Adaptive risk weights</h2>
+    <p>Guard 47's weights are hand-set guesses. Here the <em>honeypots are the
+       labeller</em>: a hit on guard 14 or 15 is ground truth, so every signal
+       co-occurring with it is scored, and weights drift toward what actually
+       predicts automation.</p>
+    <p class="note">Clamped to 0.5x–1.5x of the base weight and gated on a
+       minimum observation count, so poisoned feedback cannot run away with it.</p>
+    <output id="adaptive-out">[checking…]</output>
+  </section>
+
+  <section data-guard="enumeration">
+    <h2>77. Enumeration / keyspace-coverage detection</h2>
+    <p>Guard 66 asks whether the <em>timing</em> is human. This asks whether the
+       <em>shape</em> of what was requested is — sequential runs, keyspace
+       coverage, monotonic traversal, absence of revisits.</p>
+    <p class="note">Survives perfect jitter, residential proxies and a flawless
+       fingerprint: it is a property of the intent, not the transport.</p>
+    <output id="enum-out">[checking…]</output>
+  </section>
+
+  <section data-guard="text-watermark">
+    <h2>78. Steganographic text watermarking</h2>
+    <p>Guard 41's canary dies the moment prose is copied out. This encodes the
+       recipient inside the text with zero-width characters, so a leaked
+       paragraph still traces back.</p>
+    <p class="note">Not DRM: any non-printing-character normalisation removes it.
+       It is a forensic aid for the lazy-copy case.</p>
+    <output id="watermark-out">[checking…]</output>
+  </section>
 
   <script src="antidebug.js"></script>
   <script src="guards-frontier.js"></script>
