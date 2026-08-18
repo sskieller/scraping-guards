@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow, noai, noimageai" />
   <meta name="tdm-reservation" content="1" />
   <meta name="tdm-policy" content="/tdm-policy.json" />
-  <title>Scraping Guards — Frontier (47–78)</title>
+  <title>Scraping Guards — Frontier (47–82)</title>
   <link rel="stylesheet" href="/assets/frontier.css?sid=__SID__" />
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -32,9 +32,9 @@
   </style>
 </head>
 <body data-sid="__SID__">
-  <h1>Scraping Guards — Frontier (47–78)</h1>
+  <h1>Scraping Guards — Frontier (47–82)</h1>
   <p>
-    Guards 47–78 extend the suite past the original 46. Blue = architectural,
+    Guards 47–82 extend the suite past the original 46. Blue = architectural,
     orange = simulated stub. Base pages:
     <a href="index.html">index.html</a> (0–25),
     <a href="advanced.html">advanced.html</a> (26–46).
@@ -300,6 +300,44 @@
     <p class="note">Not DRM: any non-printing-character normalisation removes it.
        It is a forensic aid for the lazy-copy case.</p>
     <output id="watermark-out">[checking…]</output>
+  </section>
+
+  <section class="arch" data-guard="response-modes">
+    <h2>79. Degradation response modes</h2>
+    <p>A 403 tells the scraper exactly what happened and what to fix. These cost
+       far more: <code>redirect</code>, <code>empty</code> (200 with a valid but
+       empty result set), and <code>hangup</code> — destroying the socket without
+       replying, which is indistinguishable from a network fault.</p>
+    <p class="note">Guard 47's ladder also gained a <code>monitor</code> rung
+       below <code>challenge</code>: greylist the client, change nothing they can see.</p>
+    <output id="degrade-out">[checking…]</output>
+  </section>
+
+  <section data-guard="api-honeypot">
+    <h2>80. API honeypot (poisoned JSON field)</h2>
+    <p>Guards 14 and 15 only catch crawlers that parse HTML. This catches API
+       clients: an undocumented decoy field that no legitimate consumer has any
+       reason to dereference, because it is in no published schema.</p>
+    <output id="apihp-out">[checking…]</output>
+  </section>
+
+  <section class="arch" data-guard="pay-per-crawl">
+    <h2>81. Pay-per-crawl (HTTP 402)</h2>
+    <p>The alternative to blocking: charge for access. Priced content answers
+       <code>402 Payment Required</code> with terms; the crawler pays out of band
+       and presents an HMAC-signed receipt scoped to one path and one crawler.</p>
+    <p class="note">402 is the status code HTTP reserved for exactly this and
+       never used. Blocking AI crawlers costs you the referral traffic and earns
+       nothing; pricing them keeps both.</p>
+    <output id="paycrawl-out">[checking…]</output>
+  </section>
+
+  <section class="arch" data-guard="crawler-policy">
+    <h2>82. Per-path crawler policy</h2>
+    <p>"Block all bots" is the wrong granularity. Docs and marketing usually
+       <em>want</em> crawling; monetised pages do not. Policy keys on the
+       <strong>verified</strong> identity from guard 75 — never the UA string.</p>
+    <output id="policy-out">[checking…]</output>
   </section>
 
   <script src="antidebug.js"></script>

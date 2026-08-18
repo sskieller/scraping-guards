@@ -57,11 +57,28 @@ const WEIGHTS = {
 /* Escalation ladder. The point is that "block" is the LAST resort, not the
  * only tool: a mid-score client gets a challenge it can actually pass. */
 const LADDER = [
-  { min: 0,   max: 24,       action: "allow",     description: "serve normally" },
+  { min: 0,   max: 14,       action: "allow",     description: "serve normally" },
+  // Greylist rung: the response is unchanged, but the client is sampled more
+  // heavily. Catches slow-burn scrapers that never cross a hard threshold.
+  { min: 15,  max: 24,       action: "monitor",   description: "serve normally, greylist for closer sampling" },
   { min: 25,  max: 49,       action: "challenge", description: "require CAPTCHA or proof-of-work" },
   { min: 50,  max: 79,       action: "tarpit",    description: "serve, but slowly and with degraded data" },
   { min: 80,  max: Infinity, action: "block",     description: "refuse outright" },
 ];
+
+/* Ways to say no, beyond a 403. A plain "Access denied" tells the scraper
+ * exactly what happened and what to fix; the quieter modes cost them far more
+ * debugging time, and some are genuinely hard to tell from ordinary network
+ * trouble. Ordered roughly by how much information they leak.
+ */
+const RESPONSE_MODES = {
+  block:    { status: 403, description: "explicit refusal — clearest signal to the scraper" },
+  redirect: { status: 302, description: "bounce to the home page; looks like a routing quirk" },
+  empty:    { status: 200, description: "200 with a valid but empty result set — needs manual testing to spot" },
+  hangup:   { status: null, description: "destroy the socket without replying — indistinguishable from a network fault" },
+  slow:     { status: 200, description: "serve, but progressively slower (tarpit)" },
+  poison:   { status: 200, description: "serve plausible but wrong data (guards 54/72)" },
+};
 
 function actionFor(score) {
   return LADDER.find((r) => score >= r.min && score <= r.max);
@@ -187,7 +204,7 @@ function weightTable() {
 function resetLearning() { observations.clear(); }
 
 module.exports = {
-  score, serverSignals, actionFor, WEIGHTS, LADDER,
+  score, serverSignals, actionFor, WEIGHTS, LADDER, RESPONSE_MODES,
   recordOutcome, adaptiveScore, adaptiveMultiplier, weightTable, resetLearning,
   MIN_OBSERVATIONS, CLAMP,
 };

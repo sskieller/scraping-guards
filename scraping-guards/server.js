@@ -293,6 +293,9 @@ const server = http.createServer(async (req, res) => {
       });
       if (collinear) signals.push("perfectly-linear-path");
     }
+    // A programmatic element.click() fires no mouseover first. Real clicks are
+    // always preceded by the pointer arriving over the target.
+    if (b.clicked && !b.hoveredBeforeClick) signals.push("click-without-hover");
     // Humans cannot fill a form in under ~400ms.
     if (typeof b.formMs === "number" && b.formMs < 400) signals.push("form-filled-too-fast");
     // Keystroke cadence: identical gaps = injected text.

@@ -13,6 +13,7 @@ const pngtext = require("./lib/pngtext");
 const crawlers = require("./lib/crawlers");
 const enumeration = require("./lib/enumeration");
 const watermark = require("./lib/watermark");
+const crawlpolicy = require("./lib/crawlpolicy");
 
 const ROOT = __dirname;
 
@@ -80,6 +81,11 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     switch (verdict.action) {
       case "allow":
         return json(res, 200, { action: "allow", score: verdict.score, flag: "FLAG-RISK-ALLOW-2b6d" }), true;
+      case "monitor":
+        // Greylist: the client sees an ordinary response and learns nothing.
+        // Only our sampling changes, which is the whole point of the rung.
+        return json(res, 200, { action: "monitor", score: verdict.score,
+          flag: "FLAG-RISK-MONITOR-5a83", greylisted: true }), true;
       case "challenge":
         return json(res, 401, { action: "challenge", score: verdict.score, flag: "FLAG-RISK-CHALLENGE",
           hint: "solve /api/pow/challenge or /api/captcha/new, then retry" }), true;
@@ -193,6 +199,103 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     // Plausible, deterministic, and completely false.
     return json(res, 200, { poisoned: false /* deliberately not advertised */,
       records: labyrinth.poisonedRecords(identity, 4) }), true;
+  }
+
+  /* ============ Guard 79: degradation response modes ============ */
+  // Beyond 403. A plain refusal tells the scraper exactly what to fix; these
+  // cost far more debugging time, and `hangup` is genuinely hard to tell apart
+  // from ordinary network trouble.
+  if (p === "/api/degrade") {
+    const mode = q.get("mode") || "block";
+    const spec = risk.RESPONSE_MODES[mode];
+    if (!spec) return json(res, 400, { error: "unknown-mode", modes: Object.keys(risk.RESPONSE_MODES) }), true;
+    switch (mode) {
+      case "redirect":
+        return send(res, 302, "", null, { Location: "/", "X-Guard": "FLAG-DEGRADE-REDIRECT" }), true;
+      case "empty":
+        // 200 with a structurally valid but empty payload — a scraper needs
+        // manual testing to notice it is being fed nothing.
+        return json(res, 200, { results: [], total: 0, page: 1 }), true;
+      case "hangup":
+        // No response at all. Cheapest possible defense.
+        req.socket.destroy();
+        return true;
+      case "slow":
+        return new Promise((resolve) => setTimeout(() => {
+          json(res, 200, { results: [], slowed: true, flag: "FLAG-DEGRADE-SLOW" });
+          resolve(true);
+        }, 400));
+      case "poison":
+        return json(res, 200, { records: labyrinth.poisonedRecords(identity, 3) }), true;
+      default:
+        return json(res, 403, { error: "Access denied", flag: "FLAG-DEGRADE-BLOCK" }), true;
+    }
+  }
+  if (p === "/api/degrade/modes") {
+    return json(res, 200, { modes: risk.RESPONSE_MODES, ladder: risk.LADDER }), true;
+  }
+
+  /* ============ Guard 80: API honeypot (poisoned JSON field) ============ */
+  // The HTML honeypots (14/15) only catch crawlers that parse pages. This one
+  // catches API clients: a decoy field no legitimate consumer has any reason to
+  // dereference, because it is not in any published schema.
+  if (p === "/api/listing") {
+    return json(res, 200, {
+      items: [{ id: 1, title: "alpha" }, { id: 2, title: "beta" }],
+      // Documented nowhere. Only a client that walks every field finds it.
+      _internal_export: "/api/internal/bulk-export?token=decoy",
+    }), true;
+  }
+  if (p === "/api/internal/bulk-export") {
+    risk.recordOutcome(risk.serverSignals(req, { ip }), true); // ground truth, like guard 14
+    return json(res, 403, {
+      error: "Access denied",
+      flag: "FLAG-APIHONEYPOT-BOT",
+      note: "This path is referenced only by an undocumented decoy field. No legitimate client reaches it.",
+    }), true;
+  }
+
+  /* ============ Guard 81: pay-per-crawl (HTTP 402) ============ */
+  if (p === "/api/premium-content" || p === "/api/archive") {
+    const price = crawlpolicy.priceFor(p);
+    const crawler = (await crawlers.verify(ip, req.headers["user-agent"], {
+      simHostname: req.headers["x-sim-rdns"],
+    })).claimed || "anonymous";
+    const receipt = req.headers["x-crawler-receipt"];
+    if (receipt) {
+      const v = crawlpolicy.verifyReceipt(receipt, p, crawler);
+      if (!v.ok) return json(res, 402, Object.assign(v, { flag: "FLAG-PAYCRAWL-INVALID", price })), true;
+      return json(res, 200, { content: "premium article body", flag: "FLAG-PAYCRAWL-PAID-1c4e" }), true;
+    }
+    // 402 is the status HTTP reserved for exactly this and never used.
+    return json(res, 402, {
+      error: "Payment Required",
+      price, crawler,
+      purchase: `/api/crawl-receipt?path=${encodeURIComponent(p)}`,
+      flag: "FLAG-PAYCRAWL-402",
+      note: "Charging crawlers is the alternative to blocking them: you keep the content and get paid for the access.",
+    }), true;
+  }
+  if (p === "/api/crawl-receipt") {
+    // Stands in for the out-of-band payment step.
+    const target = q.get("path") || "/api/premium-content";
+    const crawler = (await crawlers.verify(ip, req.headers["user-agent"], {
+      simHostname: req.headers["x-sim-rdns"],
+    })).claimed || "anonymous";
+    return json(res, 200, { receipt: crawlpolicy.issueReceipt(target, crawler), path: target, crawler }), true;
+  }
+
+  /* ============ Guard 82: per-path crawler policy ============ */
+  if (p === "/api/policy") {
+    const target = q.get("path") || "/docs";
+    const v = await crawlers.verify(ip, req.headers["user-agent"], { simHostname: req.headers["x-sim-rdns"] });
+    // Policy keys on the VERIFIED identity — an unverified UA is worthless.
+    const decision = crawlpolicy.policyFor(target, v.verified ? v.claimed : null);
+    return json(res, decision.allow ? 200 : 403, Object.assign(decision, {
+      path: target,
+      verifiedAs: v.verified ? v.claimed : null,
+      flag: decision.allow ? "FLAG-CRAWLPOLICY-ALLOW-3f21" : "FLAG-CRAWLPOLICY-DENY",
+    })), true;
   }
 
   /* ============ Guard 75: verified crawler allowlisting ============ */

@@ -819,6 +819,180 @@ test.describe("78. Steganographic text watermarking", () => {
   });
 });
 
+/* ================= 79. Degradation response modes ================= */
+test.describe("79. Degradation response modes", () => {
+  test("the ladder gained a greylist rung below challenge", async () => {
+    const risk = require("../lib/risk");
+    expect(risk.actionFor(20).action).toBe("monitor");
+    // A greylisted client must not be able to tell: same status, no hint.
+    const r = await getJson("/api/risk/gated?signals=rate-exceeded", {
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0",
+      "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty",
+      Referer: BASE + "/frontier.html", "Accept-Language": "en-US",
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.action).toBe("monitor");
+    expect(r.body.greylisted).toBe(true);
+  });
+
+  test("redirect and empty modes look like ordinary responses", async () => {
+    const ctx = await request.newContext();
+    const red = await ctx.get(BASE + "/api/degrade?mode=redirect", { maxRedirects: 0 });
+    expect(red.status()).toBe(302);
+    expect(red.headers()["location"]).toBe("/");
+
+    const empty = await ctx.get(BASE + "/api/degrade?mode=empty");
+    expect(empty.status()).toBe(200);
+    const body = await empty.json();
+    // Structurally valid, just... nothing. No error to notice.
+    expect(body.results).toEqual([]);
+    expect(body.total).toBe(0);
+    await ctx.dispose();
+  });
+
+  test("hangup destroys the socket with no response at all", async () => {
+    const http = require("http");
+    const u = new URL(BASE);
+    const err = await new Promise((resolve) => {
+      const req = http.request(
+        { hostname: u.hostname, port: u.port, path: "/api/degrade?mode=hangup", method: "GET" },
+        (res) => resolve({ unexpectedStatus: res.statusCode })
+      );
+      req.on("error", (e) => resolve({ code: e.code }));
+      req.end();
+    });
+    // Indistinguishable from a network fault — which is the point.
+    expect(err.unexpectedStatus).toBeUndefined();
+    expect(["ECONNRESET", "ECONNABORTED", "EPIPE"]).toContain(err.code);
+  });
+
+  test("every mode documents what it leaks", async () => {
+    const r = await getJson("/api/degrade/modes");
+    for (const mode of ["block", "redirect", "empty", "hangup", "slow", "poison"]) {
+      expect(r.body.modes[mode], `${mode} must be documented`).toBeTruthy();
+      expect(r.body.modes[mode].description.length).toBeGreaterThan(10);
+    }
+  });
+});
+
+/* ================= 80. API honeypot ================= */
+test.describe("80. API honeypot", () => {
+  test("the decoy field is undocumented and dereferencing it flags the client", async () => {
+    const ctx = await request.newContext();
+    const listing = await (await ctx.get(BASE + "/api/listing")).json();
+    // Present, but named so no legitimate consumer would use it.
+    expect(listing._internal_export).toBeTruthy();
+    expect(listing.items.length).toBeGreaterThan(0);
+
+    const trap = await ctx.get(BASE + "/api/internal/bulk-export?token=decoy");
+    expect(trap.status()).toBe(403);
+    expect((await trap.json()).flag).toBe("FLAG-APIHONEYPOT-BOT");
+    await ctx.dispose();
+  });
+
+  test("hitting the API honeypot also labels the adaptive weights", async () => {
+    const ctx = await request.newContext();
+    await ctx.get(BASE + "/api/risk/reset-learning");
+    const bot = await request.newContext({ extraHTTPHeaders: { "User-Agent": "Scrapy/2.11" } });
+    for (let i = 0; i < 6; i++) await bot.get(BASE + "/api/internal/bulk-export");
+    const w = await (await ctx.get(BASE + "/api/risk/weights")).json();
+    expect(w.weights.find((x) => x.signal === "http-library-ua").observations.bot).toBeGreaterThanOrEqual(6);
+    await bot.dispose();
+    await ctx.dispose();
+  });
+});
+
+/* ================= 81. Pay-per-crawl ================= */
+test.describe("81. Pay-per-crawl", () => {
+  test("priced content answers 402 with terms, and a receipt unlocks it", async () => {
+    const ctx = await request.newContext();
+    const unpaid = await ctx.get(BASE + "/api/premium-content");
+    expect(unpaid.status()).toBe(402);
+    const terms = await unpaid.json();
+    expect(terms.price.amount).toBe("0.002");
+    expect(terms.flag).toBe("FLAG-PAYCRAWL-402");
+
+    const { receipt } = await (await ctx.get(BASE + "/api/crawl-receipt?path=%2Fapi%2Fpremium-content")).json();
+    const paid = await ctx.get(BASE + "/api/premium-content", { headers: { "X-Crawler-Receipt": receipt } });
+    expect(paid.status()).toBe(200);
+    expect((await paid.json()).flag).toBe("FLAG-PAYCRAWL-PAID-1c4e");
+    await ctx.dispose();
+  });
+
+  test("a receipt is scoped to one path and cannot be forged", async () => {
+    const ctx = await request.newContext();
+    const { receipt } = await (await ctx.get(BASE + "/api/crawl-receipt?path=%2Fapi%2Fpremium-content")).json();
+
+    // Bought for premium-content, presented at archive.
+    const wrongPath = await ctx.get(BASE + "/api/archive", { headers: { "X-Crawler-Receipt": receipt } });
+    expect(wrongPath.status()).toBe(402);
+    expect((await wrongPath.json()).reason).toBe("receipt-wrong-path");
+
+    const forged = await ctx.get(BASE + "/api/premium-content", {
+      headers: { "X-Crawler-Receipt": receipt.split(".")[0] + ".notasignature" },
+    });
+    expect(forged.status()).toBe(402);
+    expect((await forged.json()).reason).toBe("bad-receipt-signature");
+    await ctx.dispose();
+  });
+});
+
+/* ================= 82. Per-path crawler policy ================= */
+test.describe("82. Per-path crawler policy", () => {
+  test("public paths are crawlable, monetised and internal paths are not", async () => {
+    const docs = await getJson("/api/policy?path=%2Fdocs");
+    expect(docs.status).toBe(200);
+    expect(docs.body.flag).toBe("FLAG-CRAWLPOLICY-ALLOW-3f21");
+
+    for (const path of ["/api/premium-content", "/internal"]) {
+      const r = await getJson(`/api/policy?path=${encodeURIComponent(path)}`);
+      expect(r.status, path).toBe(403);
+      expect(r.body.flag).toBe("FLAG-CRAWLPOLICY-DENY");
+    }
+  });
+
+  test("restricted paths key on the VERIFIED identity, not the UA string", async () => {
+    // Claiming Googlebot without DNS backing gets you nothing.
+    const claimed = await getJson("/api/policy?path=%2Farchive", { "User-Agent": "Googlebot/2.1" });
+    expect(claimed.status).toBe(403);
+    expect(claimed.body.verifiedAs).toBeNull();
+
+    // The archive rule lists Googlebot/Bingbot/archive.org, so our test bot is
+    // verified but still not on that path's list — verification is necessary,
+    // not sufficient.
+    const verified = await getJson("/api/policy?path=%2Farchive", {
+      "User-Agent": "SGTestBot/1.0", "X-Sim-RDNS": "localhost",
+    });
+    expect(verified.body.verifiedAs).toBe("SGTestBot");
+    expect(verified.status).toBe(403);
+
+    // ...but it IS allowed on a wildcard path.
+    const wildcard = await getJson("/api/policy?path=%2Fdocs", {
+      "User-Agent": "SGTestBot/1.0", "X-Sim-RDNS": "localhost",
+    });
+    expect(wildcard.status).toBe(200);
+  });
+});
+
+/* ================= 36 refinement: hover before click ================= */
+test("36. a programmatic click with no preceding hover is flagged", async () => {
+  const ctx = await request.newContext();
+  // element.click() fires no mouseover first; a real pointer always arrives.
+  const bot = await ctx.post(BASE + "/api/behavior/score", {
+    data: { moves: [], clicked: true, hoveredBeforeClick: false },
+  });
+  expect((await bot.json()).signals).toContain("click-without-hover");
+
+  const human = await ctx.post(BASE + "/api/behavior/score", {
+    data: {
+      moves: [0, 17, 39, 56, 68, 85, 107].map((t, i) => ({ x: i * 9 + (i % 3), y: i * i, t })),
+      clicked: true, hoveredBeforeClick: true, formMs: 2400,
+    },
+  });
+  expect((await human.json()).signals || []).not.toContain("click-without-hover");
+  await ctx.dispose();
+});
+
 /* ================= 71 + honesty guardrail ================= */
 test("71. QUIC stub declares itself simulated", async () => {
   const r = await getJson("/api/net/quic");

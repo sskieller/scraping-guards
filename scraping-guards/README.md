@@ -1,7 +1,7 @@
 # Scraping Guards Test Page
 
 A self-contained target for testing scrapers and anti-scraping defenses in CI.
-**78 guards** (plus one control), each emitting a `FLAG-<NAME>-<id>` token so a
+**82 guards** (plus one control), each emitting a `FLAG-<NAME>-<id>` token so a
 test can assert exactly what a given class of client can and cannot reach.
 
 Point your scraper at it and see how far it gets. Or lift the guards and test
@@ -11,7 +11,7 @@ your own defenses against them.
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test          # boots server.js, runs all 114 tests
+npm test          # boots server.js, runs all 125 tests
 npm run serve     # http://localhost:8080
 ```
 
@@ -19,7 +19,7 @@ npm run serve     # http://localhost:8080
 | --- | --- | --- |
 | [`index.html`](index.html) | 0–25 | Obfuscation, honeypots, basic bot detection |
 | [`advanced.html`](advanced.html) | 26–46 | Challenges, crypto, transports, fingerprint stubs |
-| [`frontier.html`](frontier.html) | 47–78 | Risk engine, adversarial responses, identity, API shape |
+| [`frontier.html`](frontier.html) | 47–82 | Risk engine, adversarial responses, identity, API shape |
 
 ---
 
@@ -82,7 +82,7 @@ those has been caught, not succeeded.
 | 44 | `os-fingerprint` | sim | p0f-style TCP/IP stack. Real: raw packet capture (TTL, window, MSS) | `FLAG-OSFP-ok` / `-BOT` | Matching UA to the real stack |
 | 45 | `ip-reputation` | sim | ASN / VPN / Tor. Real: MaxMind, IPQualityScore, Tor exit list | `FLAG-IPREP-ok` / `-BOT` | Residential proxies |
 | 46 | `connection-limit` | part | Concurrent sockets per IP — genuinely counted; TLS resumption is not | `FLAG-CONNLIMIT-ok` / `-BOT` | Connection pooling |
-| **47** | **`risk-engine`** | real | **Weighted signal scoring with proportional escalation: `allow → challenge → tarpit → block`** | `FLAG-RISK-ALLOW-2b6d` | Suppressing enough signal *mass* at once |
+| **47** | **`risk-engine`** | real | **Weighted signal scoring with proportional escalation: `allow → monitor → challenge → tarpit → block`** | `FLAG-RISK-ALLOW-2b6d` | Suppressing enough signal *mass* at once |
 | 48 | `subresource` | real | Verifies the CSS, font and image were actually fetched | `FLAG-SUBRESOURCE-7a15` | Loading subresources (being a browser) |
 | 49 | `anti-debug` | real | `debugger` timing, viewport gap, console tripwire, builtin tamper check | `FLAG-ANTIDEBUG-6c4f` | Patching the checks |
 | 50 | `obfuscation` | real | Packed bundle + runtime SHA-256 integrity check against a manifest | `FLAG-INTEGRITY-0f5c` | Unpacking — and it *is* unpackable |
@@ -114,6 +114,10 @@ those has been caught, not succeeded.
 | **76** | **`adaptive-risk`** | real | **Weights learn from honeypot ground truth; clamped 0.5x–1.5x** | *(see `/api/risk/weights`)* | Avoiding every conclusive guard while leaking nothing |
 | 77 | `enumeration` | real | Sequential runs, keyspace coverage, monotonic traversal, no-revisits | `FLAG-ENUMERATION-8c31` | Scraping in genuinely human-shaped access patterns |
 | 78 | `text-watermark` | real | Recipient id encoded in zero-width chars *inside* the prose | `FLAG-WATERMARK-4b90` | Stripping non-printing characters |
+| **79** | **`response-modes`** | real | **Ways to say no beyond 403: redirect, empty result set, and socket hangup (indistinguishable from a network fault)** | `FLAG-DEGRADE-*` | Distinguishing a block from a network fault |
+| 80 | `api-honeypot` | real | Undocumented decoy field in a JSON response; dereferencing it is conclusive | `FLAG-APIHONEYPOT-BOT` | **Not walking undocumented fields** |
+| **81** | **`pay-per-crawl`** | real | **HTTP 402 + HMAC receipt scoped to one path and crawler — price access instead of blocking it** | `FLAG-PAYCRAWL-PAID-1c4e` | Paying |
+| 82 | `crawler-policy` | real | Per-path policy keyed on the *verified* identity from guard 75, not the UA | `FLAG-CRAWLPOLICY-ALLOW-3f21` | Being a crawler the path actually permits |
 
 ### Forcing a verdict on the simulated guards
 
@@ -172,7 +176,7 @@ the **block** band.
 | `tools/make-wasm.js` | Hand-assembles the wasm module (51) |
 | `tools/obfuscate.js` | Packs the bundle + writes `integrity.json` (50) |
 | `ai.txt`, `llms.txt`, `robots.txt` | Declarative layer (70) |
-| `tests/*.spec.js` | 114 Playwright tests across all guards |
+| `tests/*.spec.js` | 125 Playwright tests across all guards |
 | `docs/TIER3-COMMERCIAL.md` | Managed bot-defense options and costs |
 
 ### Regenerating build artifacts
@@ -228,6 +232,29 @@ path.
 
 ---
 
+## Cross-checked against published guides
+
+Guards 79–82 and the `monitor` rung came from reviewing six practitioner
+sources (Apify Academy, Cloudflare, Browserless, Firecrawl, an engineer's
+handbook, and the antiscraping-toolkit repo). Most of what they describe was
+already covered. What was not:
+
+| Source said | Was missing | Now |
+| --- | --- | --- |
+| Detection responses include redirect, empty results, and socket hangup — not just 403 | Ladder only had `block` | Guard 79 |
+| Systems greylist before challenging | Ladder jumped `allow → challenge` | `monitor` rung |
+| "Poisoned JSON objects" trap API clients | Honeypots were HTML-only | Guard 80 |
+| Charge AI crawlers rather than block them | No monetisation path at all | Guard 81 |
+| Restrict *which pages* are crawlable | robots.txt only, unenforced | Guard 82 |
+| A programmatic `.click()` fires no hover first | Not checked | Guard 36 refinement |
+
+Two claims in those sources are worth contradicting. Honeypots are repeatedly
+shown using `display: none`; that is the *weakest* form, because scrapers
+routinely filter it — guard 14 uses off-screen positioning plus `aria-hidden`
+instead (see the note in `index.html`). And rotating CSS classes is presented
+as a per-deploy build step; guard 31 rotates them **per request**, which is
+strictly stronger and no harder to implement server-side.
+
 ## A finding from building this
 
 Playwright-driven Chromium **fails guard 32** on header order alone. The
@@ -246,6 +273,6 @@ would false-positive on real browsers.
 
 ## CI
 
-`.github/workflows/scraping-guards.yml` runs all 114 tests on push and PR. Tests
+`.github/workflows/scraping-guards.yml` runs all 125 tests on push and PR. Tests
 are serial (`fullyParallel: false`) because the rate-limit, quota and connection
 guards are stateful.

@@ -307,6 +307,51 @@
       `\n  copied text traces to: ${traced.recipient}`);
   })();
 
+  /* --- 79. Degradation response modes --- */
+  (async function () {
+    const { modes, ladder } = await fetch("/api/degrade/modes").then(j);
+    const redirect = await fetch("/api/degrade?mode=redirect", { redirect: "manual" })
+      .then((r) => r.type === "opaqueredirect" || r.status === 302 ? "302 → /" : `status ${r.status}`)
+      .catch(() => "opaque redirect");
+    const empty = await fetch("/api/degrade?mode=empty").then(j);
+    out("degrade-out",
+      `ladder: ${ladder.map((l) => l.action).join(" → ")}\n` +
+      `modes: ${Object.keys(modes).join(", ")}\n` +
+      `redirect → ${redirect}\nempty → ${JSON.stringify(empty)}`);
+  })();
+
+  /* --- 80. API honeypot --- */
+  (async function () {
+    const listing = await fetch("/api/listing").then(j);
+    const decoy = Object.keys(listing).find((k) => k.startsWith("_"));
+    out("apihp-out",
+      `response carries an undocumented field: ${decoy}\n` +
+      `a client that dereferences it is confirmed automated — this page does not.`);
+  })();
+
+  /* --- 81. Pay-per-crawl --- */
+  (async function () {
+    const r = await fetch("/api/premium-content");
+    const body = await r.json();
+    if (r.status !== 402) return out("paycrawl-out", JSON.stringify(body));
+    const { receipt } = await fetch("/api/crawl-receipt?path=%2Fapi%2Fpremium-content").then(j);
+    const paid = await fetch("/api/premium-content", { headers: { "X-Crawler-Receipt": receipt } }).then(j);
+    out("paycrawl-out",
+      `unpaid → 402 ${body.price.amount} ${body.price.currency} ${body.price.unit}\n` +
+      `with receipt → ${paid.flag}`);
+  })();
+
+  /* --- 82. Per-path crawler policy --- */
+  (async function () {
+    const paths = ["/docs", "/archive", "/api/premium-content", "/internal"];
+    const rows = [];
+    for (const path of paths) {
+      const r = await fetch(`/api/policy?path=${encodeURIComponent(path)}`).then(j);
+      rows.push(`${path.padEnd(22)} ${r.allow ? "allow" : "deny "}  ${r.reason}`);
+    }
+    out("policy-out", rows.join("\n"));
+  })();
+
   /* --- 71. QUIC stub --- */
   fetch("/api/net/quic").then(j).then((r) => out("quic-out", `${r.flag} negotiated=${r.negotiated} (simulated)`));
 })();
