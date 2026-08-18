@@ -1,0 +1,41 @@
+{
+  "name": "scraping-guards",
+  "version": "1.0.0",
+  "description": "A deliberately hostile test target for scrapers and anti-scraping defenses: 82 guards plus a realistic recipe site, with a Playwright suite asserting what each class of client can reach.",
+  "keywords": [
+    "scraping", "web-scraping", "anti-scraping", "bot-detection",
+    "test-fixture", "honeypot", "fingerprinting", "crawler", "playwright"
+  ],
+  "license": "MIT",
+  "author": "Søren Skieller",
+  "repository": { "type": "git", "url": "git+https://github.com/sskieller/testproject.git" },
+  "bugs": { "url": "https://github.com/sskieller/testproject/issues" },
+  "homepage": "https://github.com/sskieller/testproject#readme",
+  "main": "index.js",
+  "bin": { "scraping-guards": "bin/scraping-guards.js" },
+  "engines": { "node": ">=18" },
+  "files": [
+    "index.js", "server.js", "routes-frontier.js",
+    "bin/", "lib/", "assets/", "fonts/", "wasm/", "src/", "tools/", "docs/",
+    "index.html", "advanced.html", "frontier.html", "frame.html",
+    "guards.js", "guards-advanced.js", "guards-frontier.js",
+    "guards.css", "cipher.css", "antidebug.js", "integrity.json",
+    "robots.txt", "ai.txt", "llms.txt",
+    "README.md", "LICENSE"
+  ],
+  "scripts": {
+    "serve": "node bin/scraping-guards.js serve",
+    "start": "node bin/scraping-guards.js serve",
+    "test": "playwright test",
+    "test:install": "playwright install --with-deps chromium",
+    "font": "python3 tools/generate-cipher-font.py",
+    "wasm": "node tools/make-wasm.js",
+    "obfuscate": "node tools/obfuscate.js",
+    "build": "npm run wasm && npm run obfuscate",
+    "urls": "node bin/scraping-guards.js urls",
+    "flags": "node bin/scraping-guards.js flags"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}
