@@ -24,7 +24,7 @@ module.exports = defineConfig({
   },
   // Boot the guards server for the duration of the run.
   webServer: {
-    command: `node server.js ${PORT}`,
+    command: `node bin/scraping-guards.js serve --port ${PORT}`,
     url: `http://localhost:${PORT}/robots.txt`,
     reuseExistingServer: !process.env.CI,
     timeout: 10_000,

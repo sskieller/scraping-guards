@@ -236,10 +236,10 @@ module.exports = async function frontierRoutes(req, res, ctx) {
       "application/xml; charset=utf-8"), true;
   }
   if (p === "/assets/recipe.css") {
-    return send(res, 200, fs.readFileSync(path.join(ROOT, "assets-recipe.css")), "text/css; charset=utf-8"), true;
+    return send(res, 200, fs.readFileSync(path.join(ROOT, "assets", "recipe.css")), "text/css; charset=utf-8"), true;
   }
   if (p === "/assets/recipe.js") {
-    return send(res, 200, fs.readFileSync(path.join(ROOT, "assets-recipe.js")), "text/javascript; charset=utf-8"), true;
+    return send(res, 200, fs.readFileSync(path.join(ROOT, "assets", "recipe.js")), "text/javascript; charset=utf-8"), true;
   }
   if (p === "/assets/recipe/hero.svg") {
     // Seeded per recipe and drawn per category, so each card looks like the

@@ -431,13 +431,22 @@ ws.attach(server, {
   },
 });
 
-server.listen(PORT, () => console.log(`scraping-guards server on http://localhost:${PORT}`));
+const QUIET = process.env.SG_QUIET === "1";
+const log = (...a) => { if (!QUIET) console.log(...a); };
+
+server.listen(PORT, () => log(`scraping-guards server on http://localhost:${server.address().port}`));
 
 /* Guard 60: mutual-TLS listener on PORT+1. Skipped (with a notice) when openssl
  * is unavailable, so the main suite still runs. */
-const MTLS_PORT = PORT + 1;
-if (mtls.start(MTLS_PORT)) {
-  console.log(`mTLS listener on https://localhost:${MTLS_PORT} (client cert required)`);
+const MTLS_PORT = PORT ? PORT + 1 : 0;
+let mtlsServer = null;
+if (process.env.SG_NO_MTLS === "1") {
+  log("mTLS listener disabled (SG_NO_MTLS=1)");
 } else {
-  console.log("mTLS listener skipped: openssl unavailable");
+  mtlsServer = mtls.start(MTLS_PORT);
+  if (mtlsServer) log(`mTLS listener on https://localhost:${MTLS_PORT} (client cert required)`);
+  else log("mTLS listener skipped: openssl unavailable");
 }
+
+/* Exported so index.js can embed this in another project's test run. */
+module.exports = { server, mtlsServer };
