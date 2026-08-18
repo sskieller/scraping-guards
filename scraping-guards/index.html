@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- GUARD: meta-robots — asks crawlers not to index/follow -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
+  <meta name="googlebot" content="noindex, nofollow" />
+  <title>Scraping Guards Test Page</title>
+  <link rel="stylesheet" href="guards.css" />
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 60rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    section { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    h2 { margin-top: 0; font-size: 1.05rem; }
+    code { background: #8882; padding: 0 .25rem; border-radius: 3px; }
+    .flag { font-family: monospace; }
+
+    /* GUARD: css-pseudo — the ::after content rule lives in guards.css so the
+       token is absent from this page's own bytes and DOM text nodes. */
+
+    /* GUARD: css-reversed — DOM holds the string backwards; CSS flips it visually. */
+    .reversed { unicode-bidi: bidi-override; direction: rtl; }
+
+    /* GUARD: css-order — DOM order is scrambled; flexbox `order` restores reading order.
+       A parser sees "c518-CSSORDER-FLAG", a browser renders "FLAG-CSSORDER-c518". */
+    .order-wrap { display: flex; }
+    .order-wrap > span { white-space: pre; }
+    .o1 { order: 1 } .o2 { order: 2 } .o3 { order: 3 } .o4 { order: 4 }
+
+    /* GUARD: honeypot-link — invisible to humans, followed by link-greedy bots. */
+    .honeypot { position: absolute; left: -9999px; width: 1px; height: 1px;
+                overflow: hidden; opacity: 0; }
+
+    /* GUARD: anti-copy visuals */
+    .noselect { user-select: none; -webkit-user-select: none; }
+
+    .verdict { font-weight: 600; }
+    .bot { color: #c0392b; } .human { color: #27ae60; }
+    #lazy-slot, #timed-slot, #reveal-slot, #behavior-slot { min-height: 1.5rem; }
+    .spacer { height: 140vh; }
+  </style>
+</head>
+<body>
+  <h1>Scraping Guards Test Page</h1>
+  <p style="font-family:system-ui,sans-serif;font-size:.9rem">
+    Prefer a realistic target? <a href="/recipe"><strong>The recipe fixture</strong></a>
+    is an ordinary-looking recipe page — servings calculator, 20 steps, JSON-LD —
+    with a handful of these guards switched on the way a real site would have them.
+  </p>
+  <p>
+    Every section below is a distinct anti-scraping technique tagged with a
+    <code>data-guard</code> attribute. Protected content is a
+    <code class="flag">FLAG-&lt;NAME&gt;-&lt;id&gt;</code> token so a CI scraper can assert
+    exactly what it should and shouldn't be able to reach. See
+    <code>README.md</code> for the expected matrix.
+  </p>
+
+  <!-- =========================================================== -->
+  <!-- CONTROL: plain server-rendered text. Any scraper gets this. -->
+  <!-- =========================================================== -->
+  <section data-guard="baseline">
+    <h2>0. Baseline (control)</h2>
+    <p>Plain static text visible to every parser:
+       <span class="flag">FLAG-BASELINE-0000</span></p>
+  </section>
+
+  <!-- =========================================================== -->
+  <!-- JS-EXECUTION GATED CONTENT                                   -->
+  <!-- =========================================================== -->
+  <section data-guard="js-render">
+    <h2>1. JS-rendered content</h2>
+    <p>Injected by client-side JS; absent from raw HTML.
+       <span id="js-slot" class="flag">[requires JS]</span></p>
+  </section>
+
+  <section data-guard="base64">
+    <h2>2. Base64-encoded payload</h2>
+    <p>Ships as base64; decoded at runtime.
+       <span id="b64-slot" class="flag" data-enc="RkxBRy1CQVNFNjQtOWFkMg==">[encoded]</span></p>
+  </section>
+
+  <section data-guard="rot13">
+    <h2>3. ROT13-obfuscated payload</h2>
+    <p>Ships ROT13'd; unscrambled at runtime.
+       <span id="rot-slot" class="flag" data-enc="SYNT-EBG13-r7s4">[encoded]</span></p>
+  </section>
+
+  <section data-guard="canvas-text">
+    <h2>4. Text rendered to &lt;canvas&gt;</h2>
+    <p>Drawn as pixels — no selectable/parseable text at all.</p>
+    <canvas id="canvas-slot" width="320" height="40"
+            data-enc="RkxBRy1DQU5WQVMtNGUxZA=="
+            aria-label="FLAG rendered as image"></canvas>
+  </section>
+
+  <section data-guard="shadow-dom">
+    <h2>5. Shadow DOM encapsulation</h2>
+    <p>Content lives in an open shadow root — outside the light DOM, so a flat
+       HTML parse misses it, though <code>.shadowRoot</code> still reaches it.
+       <code>mode: "closed"</code> would also hide it from page script.</p>
+    <div id="shadow-host"></div>
+  </section>
+
+  <section data-guard="lazy-load">
+    <h2>6. Lazy load on scroll (IntersectionObserver)</h2>
+    <p>Only materializes when scrolled into view.</p>
+    <div class="spacer"></div>
+    <span id="lazy-slot" class="flag">[scroll to load]</span>
+  </section>
+
+  <section data-guard="time-gated">
+    <h2>7. Time-gated content</h2>
+    <p>Appears only after a delay (defeats "load then read immediately").</p>
+    <span id="timed-slot" class="flag">[waiting…]</span>
+  </section>
+
+  <section data-guard="click-reveal">
+    <h2>8. Interaction-gated (click to reveal)</h2>
+    <button id="reveal-btn" type="button">Reveal</button>
+    <span id="reveal-slot" class="flag">[click required]</span>
+  </section>
+
+  <!-- =========================================================== -->
+  <!-- OBFUSCATION (parser-hostile, browser-fine)                   -->
+  <!-- =========================================================== -->
+  <section data-guard="css-pseudo">
+    <h2>9. CSS ::after content injection</h2>
+    <p>The token exists only in a stylesheet, not the DOM:
+       <span class="pseudo-secret flag"></span></p>
+  </section>
+
+  <section data-guard="css-reversed">
+    <h2>10. CSS-reversed text</h2>
+    <p>Rendered correctly, stored backwards:
+       <span class="reversed flag">a7f9-DESREVER-GALF</span></p>
+  </section>
+
+  <section data-guard="css-order">
+    <h2>11. CSS reordered fragments</h2>
+    <p class="order-wrap flag">
+      <span class="o4">c518</span><span class="o2">CSSORDER</span><span class="o1">FLAG-</span><span class="o3">-</span>
+    </p>
+    <small>DOM order is scrambled; only <code>order</code> makes it readable.</small>
+  </section>
+
+  <section data-guard="zero-width">
+    <h2>12. Zero-width character injection</h2>
+    <p>Invisible U+200B chars break naive substring matches:
+       <span class="flag">F&#8203;L&#8203;A&#8203;G-&#8203;ZWSP-&#8203;33ab</span></p>
+  </section>
+
+  <section data-guard="email-obfuscation">
+    <h2>13. Email obfuscation</h2>
+    <p>Entity-encoded + JS-assembled to dodge address harvesters:
+       <span id="email-slot">&#115;&#101;&#99;&#114;&#101;&#116;&#64;&#101;&#120;&#97;&#109;&#112;&#108;&#101;</span></p>
+  </section>
+
+  <!-- =========================================================== -->
+  <!-- HONEYPOTS / TRAPS (scrapers should NOT trigger these)        -->
+  <!-- =========================================================== -->
+  <section data-guard="honeypot-link">
+    <h2>14. Honeypot link</h2>
+    <p>Off-screen link no human sees. Following it flags a bot.</p>
+    <!-- aria-hidden + tabindex=-1 are REQUIRED here. `.honeypot` hides this
+         off-screen (left:-9999px), which is the classic "visually hidden"
+         technique — screen readers still announce it and keyboards can still
+         tab to it. Without these attributes an assistive-tech user can reach
+         the trap and get themselves classified as a bot. `display:none` would
+         hide it from AT for free, but scrapers routinely filter display:none,
+         so it makes a much weaker trap. Off-screen + aria-hidden gets both. -->
+    <a class="honeypot" href="/trap?flag=FLAG-TRAP-DONOTFOLLOW" rel="nofollow"
+       tabindex="-1" aria-hidden="true">do not follow</a>
+    <span>(a well-behaved scraper never requests <code>/trap</code>)</span>
+  </section>
+
+  <section data-guard="honeypot-field">
+    <h2>15. Honeypot form field</h2>
+    <form id="hp-form" action="/submit" method="post" autocomplete="off">
+      <label>Name <input name="name" type="text" autocomplete="off"></label>
+      <!-- Hidden field; only bots fill it. Server rejects non-empty. -->
+      <input class="honeypot" name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
+    </form>
+  </section>
+
+  <section data-guard="decoy-data">
+    <h2>16. Decoy data poisoning</h2>
+    <p>Greedy scrapers grab the hidden fake below; only the visible one is real.</p>
+    <span class="honeypot flag">FLAG-DECOY-FAKE-ffff</span>
+    <span class="flag">FLAG-REAL-a90c</span>
+  </section>
+
+  <!-- =========================================================== -->
+  <!-- BOT / AUTOMATION DETECTION                                   -->
+  <!-- =========================================================== -->
+  <section data-guard="webdriver">
+    <h2>17. navigator.webdriver flag</h2>
+    <p class="verdict" id="wd-verdict">[checking…]</p>
+  </section>
+
+  <section data-guard="headless">
+    <h2>18. Headless-browser heuristics</h2>
+    <p>UA "Headless", zero plugins, empty languages, missing <code>chrome</code> object.</p>
+    <p class="verdict" id="headless-verdict">[checking…]</p>
+  </section>
+
+  <section data-guard="webgl">
+    <h2>19. WebGL renderer fingerprint</h2>
+    <p>SwiftShader / llvmpipe renderers betray headless GPUs.</p>
+    <p class="verdict" id="webgl-verdict">[checking…]</p>
+  </section>
+
+  <section data-guard="canvas-fp">
+    <h2>20. Canvas fingerprint</h2>
+    <p>Stable per-engine hash; identical hashes across "different" clients = automation farm.</p>
+    <p class="verdict" id="fp-verdict">[checking…]</p>
+  </section>
+
+  <section data-guard="behavior">
+    <h2>21. Behavioral gate (real mouse movement)</h2>
+    <p>Content unlocks only after genuine pointer movement.</p>
+    <span id="behavior-slot" class="flag">[move the mouse]</span>
+  </section>
+
+  <!-- =========================================================== -->
+  <!-- ACCESS CONTROL                                               -->
+  <!-- =========================================================== -->
+  <section data-guard="fetch-token">
+    <h2>22. Token-gated API content</h2>
+    <p>Fetched from <code>/api/protected</code>, which requires an
+       <code>X-Scrape-Token</code> header issued by JS.</p>
+    <span id="api-slot" class="flag">[fetching…]</span>
+  </section>
+
+  <section data-guard="iframe">
+    <h2>23. Iframe-embedded content</h2>
+    <p>Real content lives in a nested document a flat parser skips.</p>
+    <iframe id="frame" src="frame.html" title="embedded" width="100%" height="60" style="border:0"></iframe>
+  </section>
+
+  <section data-guard="anti-copy" class="noselect">
+    <h2>24. Anti-copy / context-menu block</h2>
+    <p>Selection, copy, and right-click are suppressed on this section:
+       <span class="flag">FLAG-ANTICOPY-71bd</span></p>
+  </section>
+
+  <section data-guard="rate-limit">
+    <h2>25. Rate limiting</h2>
+    <p>Server returns <code>429</code> after too many hits to
+       <code>/api/rated</code> from one IP within the window.</p>
+  </section>
+
+  <script src="guards.js"></script>
+</body>
+</html>

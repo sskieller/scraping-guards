@@ -1,0 +1,18 @@
+{
+  "name": "scraping-guards-test-page",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A test page implementing many anti-scraping guards, with a Playwright suite for CI.",
+  "scripts": {
+    "serve": "node server.js",
+    "test": "playwright test",
+    "test:install": "playwright install --with-deps chromium",
+    "font": "python3 tools/generate-cipher-font.py",
+    "wasm": "node tools/make-wasm.js",
+    "obfuscate": "node tools/obfuscate.js",
+    "build": "npm run wasm && npm run obfuscate"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}

@@ -1,0 +1,3 @@
+/* External stylesheet so the CSS-injected token is not present in the page's
+   own HTML bytes or DOM text nodes — only in a separately-fetched resource. */
+.pseudo-secret::after { content: "FLAG-CSSPSEUDO-b21c"; }
