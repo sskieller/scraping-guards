@@ -1,10 +1,17 @@
 name: ci
 
 on:
+  # Only main on push — `pull_request` already covers branch work, and matching
+  # every branch here would run the whole suite twice for each PR push.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# A new push supersedes the run in flight for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
