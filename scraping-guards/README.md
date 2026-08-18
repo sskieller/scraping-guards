@@ -11,7 +11,7 @@ your own defenses against them.
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test          # boots server.js, runs all 125 tests
+npm test          # boots server.js, runs all 143 tests
 npm run serve     # http://localhost:8080
 ```
 
@@ -20,6 +20,49 @@ npm run serve     # http://localhost:8080
 | [`index.html`](index.html) | 0–25 | Obfuscation, honeypots, basic bot detection |
 | [`advanced.html`](advanced.html) | 26–46 | Challenges, crypto, transports, fingerprint stubs |
 | [`frontier.html`](frontier.html) | 47–82 | Risk engine, adversarial responses, identity, API shape |
+| [`/recipe`](lib/recipe-page.js) | *(fixture)* | **A realistic recipe page** — see below |
+
+---
+
+## The recipe fixture — a semi-real target
+
+The guard pages are obviously test pages. `/recipe` is not: it is an ordinary
+recipe site — hero illustration, a long preamble nobody asked for, a servings
+calculator, 20 numbered steps, equipment, notes, nutrition and schema.org
+JSON-LD. Point a scraper at it and you learn something the guard pages cannot
+tell you, because the obstacles are the ones real sites create *by accident*.
+
+Only the guards a real recipe site would plausibly have are switched on:
+JS-rendered nutrition (1), lazy-loaded steps (6), the honeypot link (14),
+per-request class names (31), the canary (41) and the text watermark (78).
+
+What makes it a genuine exercise:
+
+- **The servings calculator rewrites every quantity in the DOM.** Raw HTML only
+  ever carries the base yield of 12. A scraper reporting "800 g flour" has run
+  the page; one reporting "400 g" has not.
+- **Not everything scales.** Yeast, salt and flaky salt are pinned, because a
+  straight ×4 makes an inedible bun. A scraper that multiplies uniformly gets
+  these wrong, and the API says so in a `reason` field rather than silently
+  returning a bad number.
+- **Steps 16–20 load on scroll**, and nutrition arrives from an API after load.
+- **The JSON-LD undercuts both of those.** This is the most instructive part and
+  it is not contrived: the structured data block carries all 20 steps and the
+  full nutrition, so a scraper that reads JSON-LD gets everything without
+  running any JavaScript. Real sites add lazy loading for performance and then
+  hand it all back for SEO. A test asserts exactly this contradiction.
+
+Everything renders from one object (`lib/recipe-data.js`), so the DOM, the JSON
+API and the JSON-LD cannot drift apart — a test compares them. Both
+illustrations are generated SVG (`lib/recipeimg.js`), deliberately stylised
+rather than synthetic photographs.
+
+```bash
+npm run serve                      # then open http://localhost:8080/recipe
+curl -s localhost:8080/api/recipe?yield=36 | jq '.ingredientGroups[1].items'
+```
+
+**The recipe is invented.** It exists to be scraped, not cooked from.
 
 ---
 
@@ -176,7 +219,7 @@ the **block** band.
 | `tools/make-wasm.js` | Hand-assembles the wasm module (51) |
 | `tools/obfuscate.js` | Packs the bundle + writes `integrity.json` (50) |
 | `ai.txt`, `llms.txt`, `robots.txt` | Declarative layer (70) |
-| `tests/*.spec.js` | 125 Playwright tests across all guards |
+| `tests/*.spec.js` | 143 Playwright tests across all guards + the recipe fixture |
 | `docs/TIER3-COMMERCIAL.md` | Managed bot-defense options and costs |
 
 ### Regenerating build artifacts
@@ -273,6 +316,6 @@ would false-positive on real browsers.
 
 ## CI
 
-`.github/workflows/scraping-guards.yml` runs all 125 tests on push and PR. Tests
+`.github/workflows/scraping-guards.yml` runs all 143 tests on push and PR. Tests
 are serial (`fullyParallel: false`) because the rate-limit, quota and connection
 guards are stateful.

@@ -14,6 +14,10 @@ const crawlers = require("./lib/crawlers");
 const enumeration = require("./lib/enumeration");
 const watermark = require("./lib/watermark");
 const crawlpolicy = require("./lib/crawlpolicy");
+const recipeData = require("./lib/recipe-data");
+const recipePage = require("./lib/recipe-page");
+const recipeimg = require("./lib/recipeimg");
+const tokens = require("./lib/tokens");
 
 const ROOT = __dirname;
 
@@ -199,6 +203,49 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     // Plausible, deterministic, and completely false.
     return json(res, 200, { poisoned: false /* deliberately not advertised */,
       records: labyrinth.poisonedRecords(identity, 4) }), true;
+  }
+
+  /* ============ Recipe fixture: a semi-real scraping target ============ */
+  if (p === "/recipe" || p === "/recipe.html") {
+    const html = recipePage.render({
+      sid: crypto.randomBytes(8).toString("hex"),
+      canary: tokens.canaryFor(identity),
+      account: (req.headers["x-api-key"] || "anonymous"),
+      baseUrl: `http://${req.headers.host || "localhost"}`,
+    });
+    return send(res, 200, html, "text/html; charset=utf-8"), true;
+  }
+  if (p === "/assets/recipe.css") {
+    return send(res, 200, fs.readFileSync(path.join(ROOT, "assets-recipe.css")), "text/css; charset=utf-8"), true;
+  }
+  if (p === "/assets/recipe.js") {
+    return send(res, 200, fs.readFileSync(path.join(ROOT, "assets-recipe.js")), "text/javascript; charset=utf-8"), true;
+  }
+  if (p === "/assets/recipe/hero.svg") {
+    return send(res, 200, recipeimg.hero(), "image/svg+xml; charset=utf-8"), true;
+  }
+  if (p === "/assets/recipe/knot.svg") {
+    return send(res, 200, recipeimg.knotDiagram(), "image/svg+xml; charset=utf-8"), true;
+  }
+  // Full recipe as JSON, scaled to any yield — the same data the page renders.
+  if (p === "/api/recipe") {
+    const target = Number(q.get("yield") || recipeData.RECIPE.yieldBase);
+    if (!Number.isFinite(target) || target < 1 || target > 500) {
+      return json(res, 400, { error: "yield must be between 1 and 500" }), true;
+    }
+    return json(res, 200, {
+      ...recipeData.RECIPE,
+      requestedYield: target,
+      ingredientGroups: recipeData.scaled(target),
+    }), true;
+  }
+  // Guard 6 backing endpoint: the steps the page loads on scroll.
+  if (p === "/api/recipe/steps") {
+    const from = Number(q.get("from") || 1);
+    return json(res, 200, { steps: recipeData.RECIPE.steps.filter((s) => s.n >= from) }), true;
+  }
+  if (p === "/api/recipe/nutrition") {
+    return json(res, 200, recipeData.RECIPE.nutrition), true;
   }
 
   /* ============ Guard 79: degradation response modes ============ */

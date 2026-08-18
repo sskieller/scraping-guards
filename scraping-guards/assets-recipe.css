@@ -1,0 +1,72 @@
+/* Recipe fixture styling — plain, readable, and deliberately ordinary so the
+   page reads as a real recipe site rather than a test harness. */
+:root { color-scheme: light dark; --line: #8883; --muted: #8888; --accent: #b5651d; }
+* { box-sizing: border-box; }
+body {
+  font: 16px/1.65 Georgia, "Iowan Old Style", serif;
+  max-width: 46rem; margin: 0 auto; padding: 0 1.15rem 4rem;
+}
+header.site, footer.site {
+  display: flex; gap: 1rem; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; padding: 1rem 0; border-bottom: 1px solid var(--line);
+  font-family: system-ui, sans-serif; font-size: .9rem;
+}
+footer.site { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 3rem; color: var(--muted); }
+.brand { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; text-decoration: none; }
+header.site nav a { margin-left: .9rem; }
+
+h1 { font-size: 2.3rem; line-height: 1.15; margin: 1.4rem 0 .3rem; }
+h2 { font-size: 1.3rem; margin: 2.2rem 0 .6rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+h3 { font-size: 1.02rem; margin: 1.1rem 0 .3rem; }
+.subtitle { font-size: 1.15rem; color: var(--muted); font-style: italic; margin: 0 0 .8rem; }
+.byline { font-family: system-ui, sans-serif; font-size: .87rem; color: var(--muted); }
+.rating { color: var(--accent); font-weight: 600; }
+.rating-count { color: var(--muted); font-weight: 400; }
+
+figure { margin: 1.5rem 0; }
+figure img { width: 100%; height: auto; border-radius: 10px; display: block; }
+figcaption { font-family: system-ui, sans-serif; font-size: .84rem; color: var(--muted); margin-top: .45rem; }
+
+dl.meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: .8rem; padding: 1rem; border: 1px solid var(--line); border-radius: 10px;
+  font-family: system-ui, sans-serif; margin: 1.4rem 0;
+}
+dl.meta dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+dl.meta dd { margin: .15rem 0 0; font-size: 1.02rem; font-weight: 600; }
+
+.calculator {
+  border: 1px solid var(--line); border-radius: 10px; padding: 1rem;
+  font-family: system-ui, sans-serif; margin: 1.6rem 0;
+}
+.calculator label { font-weight: 600; margin-right: .5rem; }
+.calculator select { font: inherit; padding: .35rem .5rem; border-radius: 6px; }
+.calculator output { display: inline-block; margin-left: .6rem; color: var(--muted); }
+.hint { font-family: system-ui, sans-serif; font-size: .86rem; color: var(--muted); }
+
+.ingredients ul { list-style: none; padding: 0; }
+.ingredients li { padding: .32rem 0; border-bottom: 1px dotted var(--line); }
+.qty { display: inline-block; min-width: 4.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.qty.fixed { color: var(--accent); }
+.qty.fixed::after { content: " *"; }
+.ing-note { color: var(--muted); font-size: .86rem; }
+.footnote { margin-top: .8rem; }
+
+ol.steps { padding-left: 0; list-style: none; counter-reset: none; }
+ol.steps li.step { margin: 1.1rem 0; padding-left: 0; }
+.step-n {
+  display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem;
+  border-radius: 50%; background: var(--accent); color: #fff;
+  font-family: system-ui, sans-serif; font-size: .82rem; font-weight: 700;
+  vertical-align: middle; margin-right: .4rem;
+}
+.step p { margin: .3rem 0 0; }
+#more-steps { font-family: system-ui, sans-serif; font-size: .88rem; color: var(--muted); }
+#more-steps.loading::before { content: "⟳ "; }
+
+.nutrition-table { border-collapse: collapse; width: 100%; font-family: system-ui, sans-serif; font-size: .92rem; }
+.nutrition-table th { text-align: left; font-weight: 500; padding: .3rem 0; border-bottom: 1px dotted var(--line); white-space: pre; }
+.nutrition-table td { text-align: right; padding: .3rem 0; border-bottom: 1px dotted var(--line); font-variant-numeric: tabular-nums; }
+
+/* Guard 14: off-screen, and out of the accessibility tree via the markup. */
+.honeypot { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
