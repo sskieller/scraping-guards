@@ -206,14 +206,34 @@ module.exports = async function frontierRoutes(req, res, ctx) {
   }
 
   /* ============ Recipe fixture: a semi-real scraping target ============ */
-  if (p === "/recipe" || p === "/recipe.html") {
-    const html = recipePage.render({
+  if (p === "/recipes") {
+    return send(res, 200, recipePage.renderIndex({
+      page: Number(q.get("page") || 1),
+      category: q.get("category"),
+      canary: tokens.canaryFor(identity),
+      baseUrl: `http://${req.headers.host || "localhost"}`,
+    }), "text/html; charset=utf-8"), true;
+  }
+  if (p === "/recipe" || p === "/recipe.html" || p.startsWith("/recipe/")) {
+    // Bare /recipe keeps working as an alias for the first recipe.
+    const slug = p.startsWith("/recipe/") ? p.slice("/recipe/".length) : recipeData.RECIPE.slug;
+    const recipe = recipeData.bySlug(slug);
+    if (!recipe) {
+      return send(res, 404,
+        `<!doctype html><meta charset=utf-8><title>Not found</title>` +
+        `<h1>No such recipe</h1><p><a href="/recipes">Back to all recipes</a></p>`,
+        "text/html; charset=utf-8"), true;
+    }
+    return send(res, 200, recipePage.render(recipe, {
       sid: crypto.randomBytes(8).toString("hex"),
       canary: tokens.canaryFor(identity),
       account: (req.headers["x-api-key"] || "anonymous"),
       baseUrl: `http://${req.headers.host || "localhost"}`,
-    });
-    return send(res, 200, html, "text/html; charset=utf-8"), true;
+    }), "text/html; charset=utf-8"), true;
+  }
+  if (p === "/sitemap.xml") {
+    return send(res, 200, recipePage.sitemap(`http://${req.headers.host || "localhost"}`),
+      "application/xml; charset=utf-8"), true;
   }
   if (p === "/assets/recipe.css") {
     return send(res, 200, fs.readFileSync(path.join(ROOT, "assets-recipe.css")), "text/css; charset=utf-8"), true;
@@ -222,30 +242,53 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     return send(res, 200, fs.readFileSync(path.join(ROOT, "assets-recipe.js")), "text/javascript; charset=utf-8"), true;
   }
   if (p === "/assets/recipe/hero.svg") {
-    return send(res, 200, recipeimg.hero(), "image/svg+xml; charset=utf-8"), true;
+    // Seeded per recipe and drawn per category, so each card looks like the
+    // distinct page it links to rather than twelve copies of the same bun.
+    const forRecipe = recipeData.bySlug(q.get("r") || "");
+    return send(res, 200, recipeimg.hero({
+      seed: q.get("r") || "hero",
+      category: forRecipe ? forRecipe.category : "Baking",
+    }), "image/svg+xml; charset=utf-8"), true;
   }
   if (p === "/assets/recipe/knot.svg") {
     return send(res, 200, recipeimg.knotDiagram(), "image/svg+xml; charset=utf-8"), true;
   }
-  // Full recipe as JSON, scaled to any yield — the same data the page renders.
+  // The catalogue as JSON, and the page-by-page feed the index lazy-loads.
+  if (p === "/api/recipes") {
+    const perPage = recipePage.PER_PAGE;
+    const all = recipeData.catalogue();
+    const pageNum = Number(q.get("page") || 0);
+    if (!pageNum) return json(res, 200, { total: all.length, recipes: all }), true;
+    const pages = Math.max(1, Math.ceil(all.length / perPage));
+    return json(res, 200, {
+      page: pageNum, pages, total: all.length,
+      recipes: all.slice((pageNum - 1) * perPage, pageNum * perPage),
+      nextPage: pageNum < pages ? pageNum + 1 : null,
+    }), true;
+  }
   if (p === "/api/recipe") {
-    const target = Number(q.get("yield") || recipeData.RECIPE.yieldBase);
+    const recipe = recipeData.bySlug(q.get("slug") || recipeData.RECIPE.slug);
+    if (!recipe) return json(res, 404, { error: "unknown-slug" }), true;
+    const target = Number(q.get("yield") || recipe.yieldBase);
     if (!Number.isFinite(target) || target < 1 || target > 500) {
       return json(res, 400, { error: "yield must be between 1 and 500" }), true;
     }
     return json(res, 200, {
-      ...recipeData.RECIPE,
-      requestedYield: target,
-      ingredientGroups: recipeData.scaled(target),
+      ...recipe, requestedYield: target,
+      ingredientGroups: recipeData.scaled(target, recipe),
     }), true;
   }
   // Guard 6 backing endpoint: the steps the page loads on scroll.
   if (p === "/api/recipe/steps") {
+    const recipe = recipeData.bySlug(q.get("slug") || recipeData.RECIPE.slug);
+    if (!recipe) return json(res, 404, { error: "unknown-slug" }), true;
     const from = Number(q.get("from") || 1);
-    return json(res, 200, { steps: recipeData.RECIPE.steps.filter((s) => s.n >= from) }), true;
+    return json(res, 200, { steps: recipe.steps.filter((s) => s.n >= from) }), true;
   }
   if (p === "/api/recipe/nutrition") {
-    return json(res, 200, recipeData.RECIPE.nutrition), true;
+    const recipe = recipeData.bySlug(q.get("slug") || recipeData.RECIPE.slug);
+    if (!recipe) return json(res, 404, { error: "unknown-slug" }), true;
+    return json(res, 200, recipe.nutrition), true;
   }
 
   /* ============ Guard 79: degradation response modes ============ */

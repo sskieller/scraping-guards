@@ -103,7 +103,7 @@ test.describe("naive scraper (raw HTML)", () => {
 
   test("the honeypot is present but unreachable by humans", async () => {
     const html = await getHtml();
-    expect(html).toMatch(/honeypot[^>]*href="\/trap\?src=recipe"/);
+    expect(html).toMatch(/honeypot[^>]*href="\/trap\?src=brown-butter-cardamom-buns"/);
     expect(html).toMatch(/honeypot[^>]*aria-hidden="true"/);
     expect(html).toMatch(/honeypot[^>]*tabindex="-1"/);
   });
@@ -177,7 +177,7 @@ test.describe("JS-capable browser", () => {
     // Absent from the rendered markup (though the JSON-LD still carries it —
     // see the leak test above).
     expect(html).not.toContain('<table class="nutrition-table"');
-    expect(html).toContain('<div id="nutrition-panel">Loading…</div>');
+    expect(html).toMatch(/<div id="nutrition-panel"[^>]*>Loading…<\/div>/);
 
     await page.goto(BASE + "/recipe");
     await expect(page.locator(".nutrition-table")).toBeVisible({ timeout: 10_000 });

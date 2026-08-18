@@ -1,4 +1,4 @@
-/* Renders the recipe page from lib/recipe-data.js.
+/* Renders the recipe pages and the catalogue index from lib/recipe-data.js.
  *
  * Server-rendered on purpose: the DOM, the JSON API and the JSON-LD block all
  * come from one object, so a scraper that trusts structured data and one that
@@ -6,72 +6,108 @@
  * their JSON-LD routinely drift, and that drift is a bug this page should not have.
  *
  * Guards deliberately left ON here, because a real site would have them:
- *   1  content injected by JS   — nutrition panel
- *   6  lazy load on scroll      — steps 16-20
+ *   1  content injected by JS   — nutrition panel, lazily-listed cards
+ *   6  lazy load on scroll      — the tail of the steps, and index pages 2+
  *  14  honeypot link           — the off-screen "printer-friendly" link
  *  31  DOM randomization       — ingredient/step class names
  *  41  canary watermark        — per-client comment
  *  78  text watermark          — recipient encoded in the story prose
- * Everything else is left off so the page reads as an ordinary recipe.
+ * Everything else is left off so the pages read as an ordinary recipe site.
+ *
+ * The index exists so a crawler has a link graph to traverse. There are three
+ * independent routes to every recipe — index pagination, related links, and
+ * prev/next — plus a sitemap. A crawler that finds only one of them still
+ * reaches the whole catalogue, which is what makes partial-crawl testing useful.
  */
 "use strict";
 const crypto = require("crypto");
-const { RECIPE } = require("./recipe-data");
+const data = require("./recipe-data");
 const watermark = require("./watermark");
 
 const esc = (s) => String(s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const SERVING_OPTIONS = [6, 12, 18, 24, 36, 48];
 const SERVER_RENDERED_STEPS = 15; // the rest arrive on scroll (guard 6)
+const PER_PAGE = 3;               // small, so pagination actually has to be walked
+
+const mins = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
 
 /* schema.org/Recipe — the structured-data path most recipe scrapers take first. */
-function jsonLd(baseUrl) {
+function jsonLd(recipe, baseUrl) {
   return {
     "@context": "https://schema.org",
     "@type": "Recipe",
-    name: RECIPE.title,
-    description: RECIPE.subtitle,
-    author: { "@type": "Organization", name: RECIPE.author },
-    datePublished: RECIPE.published,
-    dateModified: RECIPE.updated,
-    recipeYield: `${RECIPE.yieldBase} ${RECIPE.yieldUnit}`,
-    recipeCuisine: RECIPE.cuisine,
-    recipeCategory: RECIPE.category,
-    prepTime: `PT${RECIPE.times.prep}M`,
-    cookTime: `PT${RECIPE.times.bake}M`,
-    totalTime: `PT${RECIPE.times.total}M`,
+    name: recipe.title,
+    description: recipe.subtitle,
+    author: { "@type": "Organization", name: recipe.author },
+    datePublished: recipe.published,
+    dateModified: recipe.updated,
+    recipeYield: `${recipe.yieldBase} ${recipe.yieldUnit}`,
+    recipeCuisine: recipe.cuisine,
+    recipeCategory: recipe.category,
+    keywords: (recipe.tags || []).join(", "),
+    prepTime: `PT${recipe.times.prep}M`,
+    cookTime: `PT${recipe.times.bake}M`,
+    totalTime: `PT${recipe.times.total}M`,
     aggregateRating: {
       "@type": "AggregateRating",
-      ratingValue: RECIPE.rating.value,
-      ratingCount: RECIPE.rating.count,
+      ratingValue: recipe.rating.value,
+      ratingCount: recipe.rating.count,
     },
-    image: [`${baseUrl}/assets/recipe/hero.svg`],
-    recipeIngredient: RECIPE.ingredientGroups.flatMap((g) =>
+    image: [`${baseUrl}/assets/recipe/hero.svg?r=${recipe.slug}`],
+    recipeIngredient: recipe.ingredientGroups.flatMap((g) =>
       g.items.map((i) => `${i.qty}${i.unit ? " " + i.unit : ""} ${i.name}`.trim())
     ),
-    recipeInstructions: RECIPE.steps.map((s) => ({
-      "@type": "HowToStep",
-      position: s.n,
-      name: s.title,
-      text: s.text,
+    recipeInstructions: recipe.steps.map((s) => ({
+      "@type": "HowToStep", position: s.n, name: s.title, text: s.text,
     })),
     nutrition: {
       "@type": "NutritionInformation",
-      servingSize: "1 bun",
-      calories: `${RECIPE.nutrition.calories} kcal`,
-      fatContent: `${RECIPE.nutrition.fat} g`,
-      carbohydrateContent: `${RECIPE.nutrition.carbs} g`,
-      proteinContent: `${RECIPE.nutrition.protein} g`,
+      servingSize: recipe.nutrition.perBun ? "1 bun" : "1 serving",
+      calories: `${recipe.nutrition.calories} kcal`,
+      fatContent: `${recipe.nutrition.fat} g`,
+      carbohydrateContent: `${recipe.nutrition.carbs} g`,
+      proteinContent: `${recipe.nutrition.protein} g`,
     },
   };
 }
 
-function render({ sid, canary, account = "anonymous", baseUrl = "" } = {}) {
+const chrome = (inner, { title, description, extraHead = "" }) => `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<meta name="description" content="${esc(description)}">
+<link rel="stylesheet" href="/assets/recipe.css">
+${extraHead}
+</head>
+${inner}
+</html>`;
+
+const siteHeader = `
+<header class="site">
+  <a class="brand" href="/recipes">Test Kitchen</a>
+  <nav><a href="/recipes">All recipes</a> <a href="/docs">Method</a> <a href="/marketing">About</a></nav>
+</header>`;
+
+const siteFooter = `
+<footer class="site">
+  <p>Fixture pages for the scraping-guards suite — the recipes are invented.
+     See <a href="/frontier.html">the guard pages</a> and
+     <a href="/sitemap.xml">the sitemap</a>.</p>
+</footer>`;
+
+/* ------------------------------------------------------------------ *
+ * Detail page
+ * ------------------------------------------------------------------ */
+function render(recipe, { sid, canary, account = "anonymous", baseUrl = "" } = {}) {
   const cls = () => "r" + crypto.randomBytes(4).toString("hex"); // guard 31
   const cIng = cls(), cStep = cls(), cQty = cls();
+  const options = recipe.yieldOptions || [recipe.yieldBase];
+  const lazySteps = recipe.steps.length > SERVER_RENDERED_STEPS;
 
-  const ingredientsHtml = RECIPE.ingredientGroups.map((g) => `
+  const ingredientsHtml = recipe.ingredientGroups.map((g) => `
         <div class="ing-group">
           <h3>${esc(g.name)}</h3>
           <ul class="${cIng}">
@@ -93,55 +129,52 @@ function render({ sid, canary, account = "anonymous", baseUrl = "" } = {}) {
           <p>${esc(s.text)}</p>
         </li>`;
 
-  const stepsHtml = RECIPE.steps.slice(0, SERVER_RENDERED_STEPS).map(stepHtml).join("");
+  const stepsHtml = recipe.steps.slice(0, SERVER_RENDERED_STEPS).map(stepHtml).join("");
 
   // Guard 78: the recipient rides invisibly inside the prose.
-  const story = RECIPE.story
+  const story = recipe.story
     .map((p, i) => `<p>${esc(i === 0 ? watermark.embed(p, "acct:" + account.slice(0, 12)) : p)}</p>`)
     .join("\n        ");
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(RECIPE.title)} — Test Kitchen</title>
-<meta name="description" content="${esc(RECIPE.subtitle)}">
-<link rel="stylesheet" href="/assets/recipe.css">
-<script type="application/ld+json">${JSON.stringify(jsonLd(baseUrl), null, 2)}</script>
-</head>
-<body data-sid="${esc(sid)}" data-base-yield="${RECIPE.yieldBase}">
+  const rel = data.related(recipe.slug);
+  const { prev, next } = data.neighbours(recipe.slug);
+
+  const body = `
+<body data-sid="${esc(sid)}" data-base-yield="${recipe.yieldBase}" data-slug="${esc(recipe.slug)}">
 <!-- ${esc(canary)} -->
-<header class="site">
-  <a class="brand" href="/recipe">Test Kitchen</a>
-  <nav><a href="/recipe">Recipes</a> <a href="/docs">Method</a> <a href="/marketing">About</a></nav>
-</header>
+${siteHeader}
+
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/recipes">All recipes</a> ›
+  <a href="/recipes?category=${encodeURIComponent(recipe.category)}">${esc(recipe.category)}</a> ›
+  <span aria-current="page">${esc(recipe.title)}</span>
+</nav>
 
 <article class="recipe">
   <figure class="hero">
-    <img src="/assets/recipe/hero.svg" width="1200" height="630"
-         alt="Illustration of a tray of knotted cardamom buns scattered with pearl sugar">
-    <figcaption>Twelve knots, one tray, about four hours including the cold rise.</figcaption>
+    <img src="/assets/recipe/hero.svg?r=${esc(recipe.slug)}" width="1200" height="630"
+         alt="Illustration for ${esc(recipe.title)}">
+    <figcaption>${esc(recipe.subtitle)}.</figcaption>
   </figure>
 
-  <h1>${esc(RECIPE.title)}</h1>
-  <p class="subtitle">${esc(RECIPE.subtitle)}</p>
+  <h1>${esc(recipe.title)}</h1>
+  <p class="subtitle">${esc(recipe.subtitle)}</p>
 
   <p class="byline">
-    By <span class="author">${esc(RECIPE.author)}</span> ·
-    Updated <time datetime="${RECIPE.updated}">${RECIPE.updated}</time> ·
-    <span class="rating" aria-label="Rated ${RECIPE.rating.value} out of 5 from ${RECIPE.rating.count} ratings">
-      ★ ${RECIPE.rating.value} <span class="rating-count">(${RECIPE.rating.count})</span>
+    By <span class="author">${esc(recipe.author)}</span> ·
+    Updated <time datetime="${recipe.updated}">${recipe.updated}</time> ·
+    <span class="rating" aria-label="Rated ${recipe.rating.value} out of 5 from ${recipe.rating.count} ratings">
+      ★ ${recipe.rating.value} <span class="rating-count">(${recipe.rating.count})</span>
     </span>
   </p>
 
   <dl class="meta">
-    <div><dt>Prep</dt><dd>${RECIPE.times.prep} min</dd></div>
-    <div><dt>Proof</dt><dd>${RECIPE.times.proof} min</dd></div>
-    <div><dt>Bake</dt><dd>${RECIPE.times.bake} min</dd></div>
-    <div><dt>Total</dt><dd>${Math.floor(RECIPE.times.total / 60)} h ${RECIPE.times.total % 60} min</dd></div>
-    <div><dt>Makes</dt><dd><span id="yield-readout">${RECIPE.yieldBase}</span> ${esc(RECIPE.yieldUnit)}</dd></div>
-    <div><dt>Cuisine</dt><dd>${esc(RECIPE.cuisine)}</dd></div>
+    <div><dt>Prep</dt><dd>${recipe.times.prep} min</dd></div>
+    <div><dt>Cook</dt><dd>${recipe.times.bake} min</dd></div>
+    <div><dt>Total</dt><dd>${mins(recipe.times.total)}</dd></div>
+    <div><dt>Makes</dt><dd><span id="yield-readout">${recipe.yieldBase}</span> ${esc(recipe.yieldUnit)}</dd></div>
+    <div><dt>Cuisine</dt><dd>${esc(recipe.cuisine)}</dd></div>
+    <div><dt>Steps</dt><dd>${recipe.steps.length}</dd></div>
   </dl>
 
   <section class="story">
@@ -151,12 +184,11 @@ function render({ sid, canary, account = "anonymous", baseUrl = "" } = {}) {
 
   <section class="calculator">
     <h2>Scale the recipe</h2>
-    <p class="hint">Quantities update as you change this. Yeast, salt and the flaky
-       salt are held back deliberately — they do not scale linearly, and a straight
-       multiplication makes an inedible bun.</p>
-    <label for="servings">How many buns?</label>
+    <p class="hint">Quantities update as you change this. Salt, yeast and raising
+       agents are held back deliberately — they do not scale linearly.</p>
+    <label for="servings">${esc(recipe.yieldQuestion || "How many servings?")}</label>
     <select id="servings" name="servings">
-      ${SERVING_OPTIONS.map((n) => `<option value="${n}"${n === RECIPE.yieldBase ? " selected" : ""}>${n} buns</option>`).join("\n      ")}
+      ${options.map((n) => `<option value="${n}"${n === recipe.yieldBase ? " selected" : ""}>${n} ${esc(recipe.yieldUnit)}</option>`).join("\n      ")}
     </select>
     <output id="scale-note" for="servings">×1 — as written</output>
   </section>
@@ -167,49 +199,151 @@ function render({ sid, canary, account = "anonymous", baseUrl = "" } = {}) {
     <p class="hint footnote">* Held at the written amount when you scale — these
        do not scale linearly. Adjust by judgement, not arithmetic.</p>
   </section>
-
+${recipe.equipment.length ? `
   <section class="equipment">
     <h2>Equipment</h2>
-    <ul>${RECIPE.equipment.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>
-  </section>
+    <ul>${recipe.equipment.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>
+  </section>` : ""}
 
   <section class="method">
     <h2>Method</h2>
     <ol class="steps" id="steps">${stepsHtml}</ol>
-
+${recipe.slug === "brown-butter-cardamom-buns" ? `
     <figure class="diagram">
       <img src="/assets/recipe/knot.svg" width="900" height="300" loading="lazy"
            alt="Three-panel diagram: cut a strip, twist it, then wind and tuck it into a knot">
       <figcaption>Step 17, the part that reads badly in words.</figcaption>
-    </figure>
-
-    <p id="more-steps" class="loading">Loading the remaining steps…</p>
+    </figure>` : ""}
+${lazySteps ? `    <p id="more-steps" class="loading">Loading the remaining steps…</p>` : ""}
   </section>
-
+${recipe.notes.length ? `
   <section class="notes">
     <h2>Notes</h2>
-    <ul>${RECIPE.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
-  </section>
+    <ul>${recipe.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+  </section>` : ""}
 
   <section class="nutrition">
     <h2>Nutrition</h2>
-    <p class="hint">Per bun, at the recipe's base yield.</p>
-    <div id="nutrition-panel">Loading…</div>
+    <p class="hint">Per ${recipe.nutrition.perBun ? "bun" : "serving"}, at the recipe's base yield.</p>
+    <div id="nutrition-panel" data-slug="${esc(recipe.slug)}">Loading…</div>
   </section>
 
   <!-- Guard 14. Off-screen and removed from the accessibility tree, so no
        human or screen-reader user can reach it; a link-greedy crawler will. -->
-  <a class="honeypot" href="/trap?src=recipe" rel="nofollow" tabindex="-1" aria-hidden="true">Printer-friendly version</a>
+  <a class="honeypot" href="/trap?src=${esc(recipe.slug)}" rel="nofollow" tabindex="-1" aria-hidden="true">Printer-friendly version</a>
 </article>
 
-<footer class="site">
-  <p>Fixture page for the scraping-guards suite — the recipe is invented.
-     See <a href="/frontier.html">the guard pages</a>.</p>
-</footer>
+<nav class="related" aria-label="Related recipes">
+  <h2>You might also like</h2>
+  <ul>${rel.map((r) => `<li><a href="${r.url}">${esc(r.title)}</a></li>`).join("")}</ul>
+</nav>
 
+<nav class="pager" aria-label="Recipe navigation">
+  ${prev ? `<a class="prev" rel="prev" href="${prev.url}">← ${esc(prev.title)}</a>` : "<span></span>"}
+  ${next ? `<a class="next" rel="next" href="${next.url}">${esc(next.title)} →</a>` : "<span></span>"}
+</nav>
+${siteFooter}
 <script src="/assets/recipe.js"></script>
-</body>
-</html>`;
+</body>`;
+
+  return chrome(body, {
+    title: `${recipe.title} — Test Kitchen`,
+    description: recipe.subtitle,
+    extraHead: `<link rel="canonical" href="${baseUrl}/recipe/${recipe.slug}">
+${prev ? `<link rel="prev" href="${baseUrl}${prev.url}">` : ""}
+${next ? `<link rel="next" href="${baseUrl}${next.url}">` : ""}
+<script type="application/ld+json">${JSON.stringify(jsonLd(recipe, baseUrl), null, 2)}</script>`,
+  });
 }
 
-module.exports = { render, jsonLd, SERVER_RENDERED_STEPS, SERVING_OPTIONS };
+/* ------------------------------------------------------------------ *
+ * Catalogue index — paginated AND lazy-loading
+ *
+ * Both paths are deliberate. `?page=N` links are server-rendered so a
+ * JS-less crawler can walk the whole catalogue; the same pages also load on
+ * scroll for a browser. A crawler taking either route must end up with the
+ * same eight recipes, and a test asserts exactly that.
+ * ------------------------------------------------------------------ */
+function cardHtml(c) {
+  return `
+      <li class="card">
+        <a class="card-link" href="${c.url}">
+          <img src="/assets/recipe/hero.svg?r=${esc(c.slug)}" width="1200" height="630"
+               loading="lazy" alt="Illustration for ${esc(c.title)}">
+          <h3>${esc(c.title)}</h3>
+        </a>
+        <p class="card-sub">${esc(c.subtitle)}</p>
+        <p class="card-meta">
+          <span class="rating">★ ${c.rating.value}</span> ·
+          ${esc(c.category)} · ${mins(c.totalTime)} · ${c.steps} steps
+        </p>
+      </li>`;
+}
+
+function renderIndex({ page = 1, perPage = PER_PAGE, category = null, canary = "", baseUrl = "" } = {}) {
+  let all = data.catalogue();
+  if (category) all = all.filter((c) => c.category.toLowerCase() === String(category).toLowerCase());
+
+  const pages = Math.max(1, Math.ceil(all.length / perPage));
+  const current = Math.min(Math.max(1, page), pages);
+  const slice = all.slice((current - 1) * perPage, current * perPage);
+  const qs = (n) => `/recipes?page=${n}${category ? `&category=${encodeURIComponent(category)}` : ""}`;
+
+  const body = `
+<body data-page="${current}" data-pages="${pages}" data-total="${all.length}"${category ? ` data-category="${esc(category)}"` : ""}>
+<!-- ${esc(canary)} -->
+${siteHeader}
+
+<h1>All recipes</h1>
+<p class="subtitle">${all.length} recipes${category ? ` in ${esc(category)}` : ""} — page ${current} of ${pages}.</p>
+
+<ul class="cards" id="cards">${slice.map(cardHtml).join("")}</ul>
+
+<p id="more-cards" class="loading"${current >= pages ? ' hidden' : ""}>Loading more recipes…</p>
+
+<nav class="pagination" aria-label="Pagination">
+  ${current > 1 ? `<a rel="prev" href="${qs(current - 1)}">← Previous</a>` : "<span></span>"}
+  <span class="pages">
+    ${Array.from({ length: pages }, (_, i) => i + 1).map((n) =>
+      n === current ? `<strong aria-current="page">${n}</strong>` : `<a href="${qs(n)}">${n}</a>`
+    ).join(" ")}
+  </span>
+  ${current < pages ? `<a rel="next" href="${qs(current + 1)}">Next →</a>` : "<span></span>"}
+</nav>
+${siteFooter}
+<script src="/assets/recipe.js"></script>
+</body>`;
+
+  return chrome(body, {
+    title: `All recipes — Test Kitchen${category ? ` (${category})` : ""}`,
+    description: `${all.length} recipes from the Test Kitchen fixture.`,
+    extraHead: `<link rel="canonical" href="${baseUrl}${qs(current)}">
+${current > 1 ? `<link rel="prev" href="${baseUrl}${qs(current - 1)}">` : ""}
+${current < pages ? `<link rel="next" href="${baseUrl}${qs(current + 1)}">` : ""}
+<script type="application/ld+json">${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: "All recipes",
+      numberOfItems: all.length,
+      itemListElement: slice.map((c, i) => ({
+        "@type": "ListItem",
+        position: (current - 1) * perPage + i + 1,
+        url: `${baseUrl}${c.url}`,
+        name: c.title,
+      })),
+    }, null, 2)}</script>`,
+  });
+}
+
+function sitemap(baseUrl) {
+  const urls = [
+    { loc: `${baseUrl}/recipes`, priority: "1.0" },
+    ...data.catalogue().map((c) => ({ loc: `${baseUrl}${c.url}`, priority: "0.8" })),
+  ];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((u) => `  <url><loc>${u.loc}</loc><priority>${u.priority}</priority></url>`).join("\n")}
+</urlset>`;
+}
+
+module.exports = { render, renderIndex, sitemap, jsonLd, SERVER_RENDERED_STEPS, PER_PAGE };

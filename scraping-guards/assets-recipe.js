@@ -62,7 +62,8 @@
       loaded = true;
       try {
         const from = list.querySelectorAll("li.step").length + 1;
-        const { steps } = await fetch(`/api/recipe/steps?from=${from}`).then((r) => r.json());
+        const slug = document.body.dataset.slug || "";
+        const { steps } = await fetch(`/api/recipe/steps?from=${from}&slug=${encodeURIComponent(slug)}`).then((r) => r.json());
         for (const s of steps) {
           const li = document.createElement("li");
           li.className = "step";
@@ -88,12 +89,64 @@
     }
   })();
 
+  /* ---- Guard 6 on the index: more cards load on scroll ------------------
+   * The ?page=N links stay in the markup, so a JS-less crawler can walk the
+   * same catalogue by pagination. Both routes must reach all eight recipes. */
+  (function () {
+    const list = document.getElementById("cards");
+    const sentinel = document.getElementById("more-cards");
+    if (!list || !sentinel) return;
+
+    let nextPage = Number(document.body.dataset.page || 1) + 1;
+    const totalPages = Number(document.body.dataset.pages || 1);
+    let busy = false;
+
+    async function loadNext() {
+      if (busy || nextPage > totalPages) return;
+      busy = true;
+      try {
+        const data = await fetch(`/api/recipes?page=${nextPage}`).then((r) => r.json());
+        for (const c of data.recipes) {
+          const li = document.createElement("li");
+          li.className = "card";
+          li.innerHTML =
+            `<a class="card-link" href="${c.url}">` +
+            `<img src="/assets/recipe/hero.svg?r=${c.slug}" width="1200" height="630" loading="lazy" alt="Illustration for ${c.title}">` +
+            `<h3>${c.title}</h3></a>` +
+            `<p class="card-sub">${c.subtitle}</p>` +
+            `<p class="card-meta"><span class="rating">★ ${c.rating.value}</span> · ${c.category} · ${c.steps} steps</p>`;
+          list.appendChild(li);
+        }
+        nextPage = data.nextPage || totalPages + 1;
+        if (nextPage > totalPages) {
+          sentinel.textContent = `All ${list.querySelectorAll("li.card").length} recipes loaded.`;
+          sentinel.classList.remove("loading");
+          sentinel.dataset.done = "true";
+        }
+      } catch (e) {
+        sentinel.textContent = "Could not load more recipes.";
+      } finally {
+        busy = false;
+      }
+    }
+
+    if ("IntersectionObserver" in window) {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => { if (e.isIntersecting) loadNext(); });
+      }, { rootMargin: "150px" });
+      io.observe(sentinel);
+    } else {
+      loadNext();
+    }
+  })();
+
   /* ---- Nutrition, fetched after load ----------------------------------- */
   (async function () {
     const panel = document.getElementById("nutrition-panel");
     if (!panel) return;
     try {
-      const n = await fetch("/api/recipe/nutrition").then((r) => r.json());
+      const slug = panel.dataset.slug || "";
+      const n = await fetch(`/api/recipe/nutrition?slug=${encodeURIComponent(slug)}`).then((r) => r.json());
       panel.innerHTML =
         `<table class="nutrition-table"><tbody>` +
         [["Energy", n.calories + " kcal"], ["Fat", n.fat + " g"], ["  of which saturates", n.saturates + " g"],

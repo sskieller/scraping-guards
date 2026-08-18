@@ -11,7 +11,7 @@ your own defenses against them.
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test          # boots server.js, runs all 143 tests
+npm test          # boots server.js, runs all 158 tests
 npm run serve     # http://localhost:8080
 ```
 
@@ -20,17 +20,44 @@ npm run serve     # http://localhost:8080
 | [`index.html`](index.html) | 0–25 | Obfuscation, honeypots, basic bot detection |
 | [`advanced.html`](advanced.html) | 26–46 | Challenges, crypto, transports, fingerprint stubs |
 | [`frontier.html`](frontier.html) | 47–82 | Risk engine, adversarial responses, identity, API shape |
-| [`/recipe`](lib/recipe-page.js) | *(fixture)* | **A realistic recipe page** — see below |
+| [`/recipes`](lib/recipe-page.js) | *(fixture)* | **A realistic recipe site** — 8 recipes, index, crawl graph — see below |
 
 ---
 
 ## The recipe fixture — a semi-real target
 
-The guard pages are obviously test pages. `/recipe` is not: it is an ordinary
-recipe site — hero illustration, a long preamble nobody asked for, a servings
-calculator, 20 numbered steps, equipment, notes, nutrition and schema.org
-JSON-LD. Point a scraper at it and you learn something the guard pages cannot
-tell you, because the obstacles are the ones real sites create *by accident*.
+The guard pages are obviously test pages. `/recipes` is not: it is an ordinary
+recipe site — eight recipes, a paginated index, hero illustrations, long
+preambles nobody asked for, servings calculators, numbered steps, equipment,
+notes, nutrition and schema.org JSON-LD. Point a scraper at it and you learn
+something the guard pages cannot tell you, because the obstacles are the ones
+real sites create *by accident*.
+
+### The crawl graph
+
+There are **four independent routes to every recipe**, and a crawler that finds
+only one of them still has to reach all eight. Tests assert each separately:
+
+| Route | Needs JS? | How |
+| --- | --- | --- |
+| Index pagination | no | `?page=N` links, 3 per page |
+| Infinite scroll | yes | the same pages, fetched on scroll |
+| Related + prev/next | no | every detail page links onward — no dead ends |
+| `sitemap.xml` | no | flat list of all eight |
+
+A test crawls from `/recipes` following only pagination and reaches all eight in
+four requests. Another starts from a single leaf recipe, never touches the
+index, and reaches all eight through related and prev/next links alone. A third
+asserts the scroll route and the pagination route return *exactly* the same set.
+
+**Two recipes are full-length with 20 steps each; six are short.** That matters:
+the short ones render every step server-side and must *not* advertise a lazy
+loader, or a crawler waits forever for content that will never arrive. A test
+checks the sentinel is present only when there is genuinely more to load.
+
+The two long recipes also scale differently on purpose — one makes **12 buns**,
+the other serves **4 people**. A scraper that learned "yield is 12" from the
+first page gets the second one wrong.
 
 Only the guards a real recipe site would plausibly have are switched on:
 JS-rendered nutrition (1), lazy-loaded steps (6), the honeypot link (14),
@@ -52,17 +79,20 @@ What makes it a genuine exercise:
   running any JavaScript. Real sites add lazy loading for performance and then
   hand it all back for SEO. A test asserts exactly this contradiction.
 
-Everything renders from one object (`lib/recipe-data.js`), so the DOM, the JSON
-API and the JSON-LD cannot drift apart — a test compares them. Both
-illustrations are generated SVG (`lib/recipeimg.js`), deliberately stylised
+Everything renders from one object (`lib/recipe-data.js` + `lib/recipe-catalogue.js`),
+so the DOM, the JSON API and the JSON-LD cannot drift apart — a test compares
+them. Illustrations are generated SVG (`lib/recipeimg.js`), drawn per category
+so each card looks like the distinct page it links to, and deliberately stylised
 rather than synthetic photographs.
 
 ```bash
-npm run serve                      # then open http://localhost:8080/recipe
-curl -s localhost:8080/api/recipe?yield=36 | jq '.ingredientGroups[1].items'
+npm run serve                       # then open http://localhost:8080/recipes
+curl -s localhost:8080/api/recipes                     # the whole catalogue
+curl -s "localhost:8080/api/recipe?slug=pici-ragu-bianco&yield=8" | jq .ingredientGroups
+curl -s localhost:8080/sitemap.xml
 ```
 
-**The recipe is invented.** It exists to be scraped, not cooked from.
+**The recipes are invented.** They exist to be scraped, not cooked from.
 
 ---
 
@@ -219,7 +249,7 @@ the **block** band.
 | `tools/make-wasm.js` | Hand-assembles the wasm module (51) |
 | `tools/obfuscate.js` | Packs the bundle + writes `integrity.json` (50) |
 | `ai.txt`, `llms.txt`, `robots.txt` | Declarative layer (70) |
-| `tests/*.spec.js` | 143 Playwright tests across all guards + the recipe fixture |
+| `tests/*.spec.js` | 158 Playwright tests across all guards, the recipe fixture and the crawl graph |
 | `docs/TIER3-COMMERCIAL.md` | Managed bot-defense options and costs |
 
 ### Regenerating build artifacts
@@ -316,6 +346,6 @@ would false-positive on real browsers.
 
 ## CI
 
-`.github/workflows/scraping-guards.yml` runs all 143 tests on push and PR. Tests
+`.github/workflows/scraping-guards.yml` runs all 158 tests on push and PR. Tests
 are serial (`fullyParallel: false`) because the rate-limit, quota and connection
 guards are stateful.

@@ -24,6 +24,9 @@ const RECIPE = {
   rating: { value: 4.7, count: 218 },
   cuisine: "Scandinavian",
   category: "Baking",
+  tags: ["baking", "slow", "sweet", "weekend"],
+  yieldQuestion: "How many buns?",
+  yieldOptions: [6, 12, 18, 24, 36, 48],
   yieldBase: 12,          // the recipe as written makes 12 buns
   yieldUnit: "buns",
   times: { prep: 45, proof: 150, bake: 22, total: 217 }, // minutes
@@ -136,6 +139,56 @@ const RECIPE = {
   nutrition: { perBun: true, calories: 384, fat: 17, saturates: 10, carbs: 51, sugars: 22, protein: 6, salt: 0.7 },
 };
 
+/* ---------- Catalogue ---------------------------------------------------
+ * A crawler needs somewhere to crawl. RECIPE stays the default export used by
+ * the original detail-page tests; RECIPES is the full set behind the index. */
+const { PICI, SHORTS } = require("./recipe-catalogue");
+
+const RECIPES = [RECIPE, PICI, ...SHORTS];
+
+const bySlug = (slug) => RECIPES.find((r) => r.slug === slug) || null;
+
+/* Cards for the index: just enough to render a listing, no steps. */
+function catalogue() {
+  return RECIPES.map((r) => ({
+    slug: r.slug, title: r.title, subtitle: r.subtitle,
+    cuisine: r.cuisine, category: r.category, tags: r.tags || [],
+    rating: r.rating, totalTime: r.times.total,
+    steps: r.steps.length,
+    yield: `${r.yieldBase} ${r.yieldUnit}`,
+    url: `/recipe/${r.slug}`,
+  }));
+}
+
+/* Related recipes, for the cross-links between detail pages. Shared tags
+ * first, then same category — so the link graph is connected rather than a
+ * set of islands, which is what makes crawl-depth testing meaningful. */
+function related(slug, limit = 3) {
+  const self = bySlug(slug);
+  if (!self) return [];
+  const tags = new Set(self.tags || []);
+  return RECIPES
+    .filter((r) => r.slug !== slug)
+    .map((r) => ({
+      r,
+      score: (r.tags || []).filter((t) => tags.has(t)).length +
+             (r.category === self.category ? 1 : 0) +
+             (r.cuisine === self.cuisine ? 1 : 0),
+    }))
+    .sort((a, b) => b.score - a.score || a.r.slug.localeCompare(b.r.slug))
+    .slice(0, limit)
+    .map(({ r, score }) => ({ slug: r.slug, title: r.title, url: `/recipe/${r.slug}`, score }));
+}
+
+/* Previous/next in catalogue order — a second, independent path through the
+ * graph, so a crawler that misses the index can still walk the whole set. */
+function neighbours(slug) {
+  const i = RECIPES.findIndex((r) => r.slug === slug);
+  if (i < 0) return { prev: null, next: null };
+  const at = (j) => (RECIPES[j] ? { slug: RECIPES[j].slug, title: RECIPES[j].title, url: `/recipe/${RECIPES[j].slug}` } : null);
+  return { prev: at(i - 1), next: at(i + 1) };
+}
+
 /* Scale one ingredient to a target yield. Non-scalable items are returned
  * unchanged, with the reason attached, so an API consumer can see the rule
  * rather than silently getting the wrong number. */
@@ -150,11 +203,11 @@ function scaleItem(item, targetYield, baseYield = RECIPE.yieldBase) {
   return { ...item, qty: rounded, scaled: true, factor: Number(factor.toFixed(3)) };
 }
 
-function scaled(targetYield) {
-  return RECIPE.ingredientGroups.map((g) => ({
+function scaled(targetYield, recipe = RECIPE) {
+  return recipe.ingredientGroups.map((g) => ({
     name: g.name,
-    items: g.items.map((i) => scaleItem(i, targetYield)),
+    items: g.items.map((i) => scaleItem(i, targetYield, recipe.yieldBase)),
   }));
 }
 
-module.exports = { RECIPE, scaleItem, scaled };
+module.exports = { RECIPE, RECIPES, bySlug, catalogue, related, neighbours, scaleItem, scaled };

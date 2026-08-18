@@ -70,3 +70,24 @@ ol.steps li.step { margin: 1.1rem 0; padding-left: 0; }
 
 /* Guard 14: off-screen, and out of the accessibility tree via the markup. */
 .honeypot { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+
+/* Catalogue index */
+.crumbs { font-family: system-ui, sans-serif; font-size: .84rem; color: var(--muted); margin: .9rem 0 0; }
+ul.cards { list-style: none; padding: 0; display: grid; gap: 1.6rem;
+           grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.card img { width: 100%; height: auto; border-radius: 8px; display: block; }
+.card-link { text-decoration: none; color: inherit; }
+.card-link h3 { margin: .5rem 0 .1rem; font-size: 1.05rem; }
+.card-sub { margin: 0; color: var(--muted); font-style: italic; font-size: .92rem; }
+.card-meta { font-family: system-ui, sans-serif; font-size: .8rem; color: var(--muted); margin: .3rem 0 0; }
+#more-cards { font-family: system-ui, sans-serif; font-size: .88rem; color: var(--muted); }
+#more-cards.loading::before { content: "⟳ "; }
+#more-cards[hidden] { display: none; }
+nav.pagination { display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+                 font-family: system-ui, sans-serif; font-size: .9rem; margin: 2rem 0;
+                 border-top: 1px solid var(--line); padding-top: 1rem; }
+nav.pagination .pages a, nav.pagination .pages strong { margin: 0 .25rem; }
+nav.related ul { list-style: none; padding: 0; }
+nav.related li { padding: .3rem 0; border-bottom: 1px dotted var(--line); }
+nav.pager { display: flex; justify-content: space-between; gap: 1rem; margin: 2rem 0;
+            font-family: system-ui, sans-serif; font-size: .9rem; }
