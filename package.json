@@ -1,7 +1,7 @@
 {
   "name": "scraping-guards",
   "version": "1.0.0",
-  "description": "A deliberately hostile test target for scrapers and anti-scraping defenses: 82 guards plus a realistic recipe site, with a Playwright suite asserting what each class of client can reach.",
+  "description": "A deliberately hostile test target for scrapers and anti-scraping defenses: 83 guards plus a realistic recipe site, with a Playwright suite asserting what each class of client can reach.",
   "keywords": [
     "scraping", "web-scraping", "anti-scraping", "bot-detection",
     "test-fixture", "honeypot", "fingerprinting", "crawler", "playwright"

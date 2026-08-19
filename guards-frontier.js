@@ -352,6 +352,50 @@
     out("policy-out", rows.join("\n"));
   })();
 
+  /* --- 83. Sensor data: collect, seal, submit --- */
+  (async () => {
+    try {
+      const hex = (s) => Uint8Array.from(s.match(/../g).map((b) => parseInt(b, 16)));
+      const b64 = (u8) => btoa(String.fromCharCode(...new Uint8Array(u8)));
+
+      const signals = [];
+      // Passive collection over a short window. A real collector watches far
+      // more and for longer; the shape is what matters here.
+      const note = (n) => { if (!signals.includes(n)) signals.push(n); };
+      for (const ev of ["mousemove", "scroll", "keydown", "pointerdown", "resize", "visibilitychange"]) {
+        addEventListener(ev, () => note(ev), { once: true, passive: true });
+      }
+      // Guarantee a minimum without lying about it: these are observations we
+      // can make immediately rather than events we waited for.
+      note("load"); note("dpr:" + devicePixelRatio); note("tz:" + Intl.DateTimeFormat().resolvedOptions().timeZone);
+      note("lang:" + navigator.language); note("cores:" + (navigator.hardwareConcurrency || 0));
+
+      const meta = await fetch("/api/sensor/nonce").then(j);
+      const key = await crypto.subtle.importKey("raw", hex(meta.key), "AES-GCM", false, ["encrypt"]);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const payload = {
+        ua: navigator.userAgent,
+        collectedAt: Date.now(),
+        signals,
+        screen: { w: screen.width, h: screen.height },
+        webdriver: navigator.webdriver === true,
+        hardwareConcurrency: navigator.hardwareConcurrency || 0,
+      };
+      const data = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(payload))
+      );
+
+      const r = await fetch("/api/sensor/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nonce: meta.nonce, iv: b64(iv), data: b64(data) }),
+      }).then(j);
+      out("sensor-out", `${r.flag} trusted=${r.trusted} signals=[${(r.signals || []).join(", ")}]`);
+    } catch (err) {
+      out("sensor-out", "sensor collection failed: " + err.message);
+    }
+  })();
+
   /* --- 71. QUIC stub --- */
   fetch("/api/net/quic").then(j).then((r) => out("quic-out", `${r.flag} negotiated=${r.negotiated} (simulated)`));
 })();

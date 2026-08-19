@@ -1012,3 +1012,152 @@ test("every simulated guard in this tier is explicitly labelled", async () => {
   expect(src).toContain("HONESTY NOTE");
   expect(src).toMatch(/not commercial-grade|packing/i);
 });
+
+/* ================= 83. Sensor data ================= */
+const sensorLib = require("../lib/sensor");
+
+test.describe("83. Sensor data as an opaque, server-validated blob", () => {
+  const UA = "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0";
+
+  const goodPayload = (ua) => ({
+    ua,
+    collectedAt: Date.now(),
+    signals: ["mousemove", "scroll", "keydown", "resize", "visibilitychange", "pointerdown"],
+    screen: { w: 1920, h: 1080 },
+    webdriver: false,
+    hardwareConcurrency: 8,
+  });
+
+  const submit = async (blob, ua) => {
+    const ctx = await request.newContext({ extraHTTPHeaders: { "User-Agent": ua || UA } });
+    const r = await ctx.post(BASE + "/api/sensor/submit", { data: blob });
+    const body = await r.json();
+    await ctx.dispose();
+    return { status: r.status(), body };
+  };
+
+  const freshNonce = async () => {
+    const ctx = await request.newContext({ extraHTTPHeaders: { "User-Agent": UA } });
+    const r = await ctx.get(BASE + "/api/sensor/nonce");
+    const body = await r.json();
+    await ctx.dispose();
+    return body;
+  };
+
+  test("a well-formed blob keyed to a fresh nonce is accepted", async () => {
+    const { nonce, algorithm } = await freshNonce();
+    expect(algorithm).toBe("AES-GCM");
+    const r = await submit(sensorLib.seal(nonce, goodPayload(UA)));
+    expect(r.status).toBe(200);
+    expect(r.body.trusted).toBe(true);
+    expect(r.body.flag).toBe("FLAG-SENSOR-8f27");
+  });
+
+  test("the nonce is single-use — a captured blob cannot be replayed", async () => {
+    const { nonce } = await freshNonce();
+    const blob = sensorLib.seal(nonce, goodPayload(UA));
+    expect((await submit(blob)).status).toBe(200);
+
+    // Replaying the byte-identical blob fails, and says why. This is the whole
+    // point of the shape: capturing a valid payload buys you exactly one request.
+    const replay = await submit(blob);
+    expect(replay.status).toBe(403);
+    expect(replay.body.reason).toBe("nonce-replayed");
+    expect(replay.body.flag).toBe("FLAG-SENSOR-REJECTED");
+  });
+
+  test("a hand-written payload cannot be forged without the key", async () => {
+    const { nonce } = await freshNonce();
+    // The scraper knows the schema — it can read our collector — but AES-GCM's
+    // auth tag means knowing the schema is not enough.
+    const forged = {
+      nonce,
+      iv: Buffer.alloc(12, 1).toString("base64"),
+      data: Buffer.from(JSON.stringify(goodPayload(UA))).toString("base64"),
+    };
+    const r = await submit(forged);
+    expect(r.status).toBe(403);
+    expect(r.body.reason).toBe("decrypt-failed");
+  });
+
+  test("an unknown nonce is rejected before any decryption is attempted", async () => {
+    const r = await submit(sensorLib.seal(crypto.randomBytes(16).toString("hex"), goodPayload(UA)));
+    expect(r.status).toBe(403);
+    expect(r.body.reason).toBe("unknown-nonce");
+  });
+
+  test("the blob must agree with what the server observes for itself", async () => {
+    const { nonce } = await freshNonce();
+    // Payload claims Chrome; the request that carries it says curl. A scraper
+    // that lifts a real browser's collector output still has to send it from
+    // something that looks like that browser.
+    const r = await submit(sensorLib.seal(nonce, goodPayload(UA)), "curl/8.4.0");
+    expect(r.status).toBe(403);
+    expect(r.body.ok).toBe(true);          // decrypted fine...
+    expect(r.body.trusted).toBe(false);    // ...but the claims did not hold up
+    expect(r.body.signals).toContain("sensor-ua-mismatch");
+    expect(r.body.flag).toBe("FLAG-SENSOR-BOT");
+  });
+
+  test("a thin or automated payload decrypts but is not trusted", async () => {
+    const { nonce } = await freshNonce();
+    const r = await submit(sensorLib.seal(nonce, {
+      ua: UA,
+      collectedAt: Date.now(),
+      signals: ["mousemove"],   // a real session emits far more
+      screen: null,
+      webdriver: true,
+      hardwareConcurrency: 0,
+    }));
+    expect(r.status).toBe(403);
+    expect(r.body.trusted).toBe(false);
+    expect(r.body.signals).toEqual(expect.arrayContaining([
+      "sensor-too-few-signals", "sensor-no-screen", "navigator.webdriver", "odd-hardware",
+    ]));
+  });
+
+  test("a stale collection is rejected even inside a live nonce", async () => {
+    const { nonce } = await freshNonce();
+    const stale = goodPayload(UA);
+    stale.collectedAt = Date.now() - (sensorLib.WINDOW_MS + 5000);
+    const r = await submit(sensorLib.seal(nonce, stale));
+    expect(r.body.signals).toContain("sensor-stale");
+    expect(r.body.trusted).toBe(false);
+  });
+
+  test("the source states what about this guard is not real", () => {
+    // Same guardrail the Tier 2 stubs get: guard 83 is genuinely encrypted and
+    // genuinely single-use, but the key is handed to the client. If that ever
+    // stops being written down, the guard starts overselling itself.
+    const src = fs.readFileSync(path.join(__dirname, "..", "lib", "sensor.js"), "utf8");
+    expect(src).toMatch(/What is NOT real/);
+    expect(src).toMatch(/obfuscat/i);
+  });
+
+  test("guard 83 is structurally different from guard 36, not just noisier", async () => {
+    // Guard 36 accepts a payload anyone can type. That is the contrast this
+    // guard exists to make, so assert it rather than describing it in a comment.
+    const ctx = await request.newContext();
+    const handWritten = await ctx.post(BASE + "/api/behavior/score", {
+      data: { moves: [{ x: 1, y: 1, t: 0 }], clicked: true, hoveredBeforeClick: true },
+    });
+    expect(handWritten.status()).toBe(200);  // readable JSON: forgeable by hand
+    await ctx.dispose();
+
+    const { nonce } = await freshNonce();
+    const typed = await submit({ nonce, iv: "", data: "" });
+    expect(typed.status).toBe(403);          // opaque blob: not forgeable by hand
+  });
+});
+
+test("83. the in-page collector catches the browser running it", async ({ page }) => {
+  // The collector reports honestly, including navigator.webdriver — so
+  // Playwright's own browser seals a blob that convicts it. A scraper that
+  // patches the flag has to patch it before the collector reads it, which is
+  // the whole game.
+  await page.goto(BASE + "/frontier.html");
+  const out = page.locator("#sensor-out");
+  await expect(out).not.toContainText("collecting…", { timeout: 10_000 });
+  await expect(out).toContainText("FLAG-SENSOR-BOT");
+  await expect(out).toContainText("navigator.webdriver");
+});

@@ -345,6 +345,17 @@
     <output id="policy-out">[checking…]</output>
   </section>
 
+  <section class="arch" data-guard="sensor-data">
+    <h2>83. Sensor data</h2>
+    <p>Guard 36 posts behavioural telemetry as readable JSON, which anyone can
+       hand-write. Every commercial system instead seals its signals into an
+       <strong>encrypted, single-use blob</strong> — Akamai's <code>_abck</code>,
+       PerimeterX's <code>_px</code>, Imperva's <code>reese84</code>, AWS WAF's
+       <code>aws-waf-token</code>. The scraper cannot author the payload without
+       first reverse-engineering the collector.</p>
+    <output id="sensor-out">[collecting…]</output>
+  </section>
+
   <script src="antidebug.js"></script>
   <script src="guards-frontier.js"></script>
 </body>

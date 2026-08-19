@@ -4,7 +4,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **A deliberately hostile test target for scrapers — and for anti-scraping
-defenses.** 82 guards plus a realistic eight-recipe site, with a Playwright
+defenses.** 83 guards plus a realistic eight-recipe site, with a Playwright
 suite that asserts exactly what each class of client can and cannot reach.
 
 Two ways to use it:
@@ -31,7 +31,7 @@ git clone https://github.com/sskieller/testproject.git scraping-guards
 cd scraping-guards
 npm install
 npx playwright install --with-deps chromium
-npm test          # 158 tests
+npm test          # 192 tests
 npm run serve     # http://localhost:8080
 ```
 
@@ -281,6 +281,7 @@ those has been caught, not succeeded.
 | 80 | `api-honeypot` | real | Undocumented decoy field in a JSON response; dereferencing it is conclusive | `FLAG-APIHONEYPOT-BOT` | **Not walking undocumented fields** |
 | **81** | **`pay-per-crawl`** | real | **HTTP 402 + HMAC receipt scoped to one path and crawler — price access instead of blocking it** | `FLAG-PAYCRAWL-PAID-1c4e` | Paying |
 | 82 | `crawler-policy` | real | Per-path policy keyed on the *verified* identity from guard 75, not the UA | `FLAG-CRAWLPOLICY-ALLOW-3f21` | Being a crawler the path actually permits |
+| **83** | **`sensor-data`** | real | **Signals sealed into an AES-GCM blob keyed to a single-use server nonce — the shape of `_abck` / `_px` / `reese84` / `aws-waf-token`** | `FLAG-SENSOR-8f27` | Reverse-engineering the collector, then matching its claims to your own request |
 
 ### Forcing a verdict on the simulated guards
 
@@ -303,16 +304,72 @@ quietly be mistaken for a working control.
 
 ## Expected results by client class
 
-| Client | Reaches | Caught by |
-| --- | --- | --- |
-| **`curl` / `requests`** (raw HTML) | Guard 0, plus the *encoded* blobs of 2, 3, 10 | 14, 15, 32, 33, 48, 67 — and poisoned by 16 and 54 |
-| **Headless browser** (JS, no stealth) | 1–13, 22–23, 26–41, 51, 55–58, 63–70 | 17, 18, 19, 32, 35 |
-| **Stealth browser** | Most of the above | 48, 60, 66 remain hard; 47 aggregates whatever leaks |
-| **Compliant crawler** (obeys robots) | Public pages | Avoids 14 and 52 by construction — which is the point |
+| Client | Reaches | Caught by | Verdict |
+| --- | --- | --- | --- |
+| **`curl` / `requests`** (raw HTML) | Guard 0, plus the *encoded* blobs of 2, 3, 10 | 14, 15, 32, 33, 48, 67 — and poisoned by 16 and 54 | `block` |
+| **TLS-impersonating client** (`curl_cffi`, `primp`, `hrequests`) | Everything above, plus 42–44 outright — the handshake, the HTTP/2 frames and the header order all match a real Chrome | 1, 6, 51, 55 and every other JS-gated guard: a better socket still runs no code | `challenge` |
+| **Headless browser** (JS, no stealth) | 1–13, 22–23, 26–41, 51, 55–58, 63–70 | 17, 18, 19, 32, 35 | `tarpit` |
+| **Anti-detect browser** (`nodriver`, `camoufox`, `puppeteer-extra`) | Most of the above; `navigator.webdriver`, the UA and the GPU string are all patched | 48, 60, 66 remain hard; 36 and 66 read behaviour, which patching does not touch | `challenge` |
+| **AI browser agent** (`browser-use`, `skyvern`, `stagehand`) | A real browser, so the fingerprint is genuine | 36 and 66: it clicks by coordinate after a screenshot, so the pointer teleports and every step waits on an LLM round-trip | `challenge` |
+| **Compliant crawler** (obeys robots) | Public pages | Avoids 14 and 52 by construction — which is the point | `allow` |
 
 A raw `curl` request scores **83** on the risk engine (guard 47) — `http-library-ua`
 45 + `missing-sec-fetch` 20 + `no-referer` 10 + `no-languages` 8 — which lands in
 the **block** band.
+
+The verdict column is not documentation: `tests/client-classes.spec.js` builds each
+client's signal set and asserts the ladder actually returns these actions, so the
+table cannot drift away from the weights.
+
+Two of those rows are worth reading together. TLS impersonation is a real,
+cheap win — it clears the entire transport tier — and it buys nothing at all
+against a guard that needs a JavaScript engine. The anti-detect browser and the
+AI agent land within a few points of each other because from the server they
+look nearly identical; only **behaviour** separates them.
+
+---
+
+## The five hidden-data routes
+
+Every guard above makes the *rendered page* harder to parse. None of them touch
+the structured data the same page publishes for search engines. The recipe
+fixture emits all five routes [webscraping.fyi catalogues](https://webscraping.fyi/learn/hidden-web-data/),
+from a single source object:
+
+| # | Route | Carries | Needs JS? |
+| ---: | --- | --- | --- |
+| 1 | `<script type="application/ld+json">` | The complete `schema.org/Recipe` — all 20 steps | No |
+| 2 | `window.__INITIAL_STATE__` hydration blob | Everything route 1 has **plus** nutrition, which the DOM fetches over XHR | No |
+| 3 | Open Graph / Twitter / `product:price:*` meta tags | Title, description, image, publish dates, price | No |
+| 4 | Microdata (`itemscope` / `itemprop`) | Only what is *rendered* — so it stops where lazy loading does | No |
+| 5 | `data-qty` / `data-unit` / `data-scalable` | Parsed quantities, no regex over `"2 tbsp"` needed | No |
+
+`tests/hidden-data.spec.js` asserts the routes **agree with each other** and with
+the API, and that all five survive with JavaScript disabled in the browser.
+
+This is the lesson the fixture exists to teach: guard 6 withholds seventeen
+steps from a raw HTTP client, and route 1 hands all twenty back in the same
+response — because SEO requires it. Real recipe sites ship this contradiction
+every day.
+
+### The hidden API
+
+The endpoints the page's own JavaScript calls are subject to **none** of the
+presentation-layer guards, because those guards exist to make HTML hard to parse
+and JSON is not HTML:
+
+| Bypassed | What the API does instead |
+| --- | --- |
+| 1 `js-render` | Returns rendered values; no engine needed |
+| 6 `lazy-load` | All 20 steps in one GET, no scrolling |
+| 31 `dom-randomization` | Stable keys — two calls are byte-identical |
+| 57 `fragmentation` | `qty` is a number, not spans with hidden decoys |
+| 58 `ssr-variance` | Fixed shape, so a selector written once keeps working |
+
+It is also a *compute* leak: `/api/recipe?yield=8` performs the scaling, including
+which ingredients refuse to scale, so a scraper never reimplements that logic.
+Hardening pages while leaving their feeding endpoint open is the most common
+real-world hole this project models.
 
 ---
 
@@ -321,7 +378,7 @@ the **block** band.
 | Path | Purpose |
 | --- | --- |
 | `server.js` | Router for guards 0–46 |
-| `routes-frontier.js` | Router for guards 47–71 |
+| `routes-frontier.js` | Router for guards 47–83 |
 | `lib/risk.js` | **Weighted scoring + escalation ladder (47)** |
 | `lib/tokens.js` | HMAC tokens, signed cursors, proof-of-work, canaries (27, 30, 37, 41) |
 | `lib/ratelimit.js` | Sliding window, token bucket, tarpit (40) |
@@ -334,12 +391,13 @@ the **block** band.
 | `lib/accounts.js` | Accounts, quota, device binding + attestation stubs (59, 61, 62) |
 | `lib/mtls.js` | Mutual-TLS listener; certs generated on demand (60) |
 | `lib/apishape.js` | Persisted queries, request signing, binary protocol (63–65) |
+| `lib/sensor.js` | **Encrypted single-use sensor blob (83)** |
 | `src/antidebug.src.js` → `antidebug.js` | Anti-debug source and its packed build (49, 50) |
 | `tools/generate-cipher-font.py` | Rewrites a font's `cmap` (28) |
 | `tools/make-wasm.js` | Hand-assembles the wasm module (51) |
 | `tools/obfuscate.js` | Packs the bundle + writes `integrity.json` (50) |
 | `ai.txt`, `llms.txt`, `robots.txt` | Declarative layer (70) |
-| `tests/*.spec.js` | 158 Playwright tests across all guards, the recipe fixture and the crawl graph |
+| `tests/*.spec.js` | 192 Playwright tests across all guards, the recipe fixture and the crawl graph |
 | `index.js` | Programmatic entry point — `start({ port })` for embedding |
 | `bin/scraping-guards.js` | CLI: `serve`, `urls`, `flags` |
 | `Dockerfile` | Run the target with no Node toolchain |
@@ -414,6 +472,22 @@ already covered. What was not:
 | Restrict *which pages* are crawlable | robots.txt only, unenforced | Guard 82 |
 | A programmatic `.click()` fires no hover first | Not checked | Guard 36 refinement |
 
+### webscraping.fyi
+
+A later pass over [webscraping.fyi](https://webscraping.fyi/)'s learning
+material — written from the *scraper's* side, which is exactly why it was
+useful — surfaced four more gaps:
+
+| Source said | Was missing | Now |
+| --- | --- | --- |
+| Commercial systems ship signals as an encrypted single-use blob (`_abck`, `_px`, `reese84`, `aws-waf-token`), not readable JSON | Guard 36 posted plaintext telemetry anyone could hand-write | Guard 83 |
+| Structured data hides in five places, not one | Only JSON-LD was emitted | Hydration blob, meta tags, microdata and `data-*` routes |
+| `curl_cffi` / `primp` / `hrequests` reproduce a real browser ClientHello | `lib/netstub.js` called a JA3/UA mismatch "the highest-signal bot tell there is" | Corrected in place; JA3 is one weighted input, not a verdict |
+| The tooling landscape is five distinct classes, not "bot vs browser" | Client matrix had four rows and no assertions | Six rows, each executed by `tests/client-classes.spec.js` |
+
+That last correction is the useful kind: the fixture had been overstating a
+guard's strength, and a source written by the people evading it said so.
+
 Two claims in those sources are worth contradicting. Honeypots are repeatedly
 shown using `display: none`; that is the *weakest* form, because scrapers
 routinely filter it — guard 14 uses off-screen positioning plus `aria-hidden`
@@ -439,7 +513,7 @@ would false-positive on real browsers.
 
 ## CI
 
-`.github/workflows/scraping-guards.yml` runs all 158 tests on push and PR. Tests
+`.github/workflows/scraping-guards.yml` runs all 192 tests on push and PR. Tests
 are serial (`fullyParallel: false`) because the rate-limit, quota and connection
 guards are stateful.
 

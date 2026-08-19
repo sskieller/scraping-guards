@@ -18,6 +18,7 @@ const recipeData = require("./lib/recipe-data");
 const recipePage = require("./lib/recipe-page");
 const recipeimg = require("./lib/recipeimg");
 const tokens = require("./lib/tokens");
+const sensor = require("./lib/sensor");
 
 const ROOT = __dirname;
 
@@ -290,6 +291,25 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     if (!recipe) return json(res, 404, { error: "unknown-slug" }), true;
     return json(res, 200, recipe.nutrition), true;
   }
+
+  /* ============ Guard 83: sensor data (opaque, server-validated) ============ */
+  if (p === "/api/sensor/nonce") {
+    return json(res, 200, sensor.issueNonce(ip)), true;
+  }
+  if (p === "/api/sensor/submit" && req.method === "POST") {
+    const blob = parseJson(await readBody(req)) || {};
+    const v = sensor.verify(blob, { ip, userAgent: req.headers["user-agent"] });
+    if (!v.ok) {
+      return json(res, 403, Object.assign(v, { flag: "FLAG-SENSOR-REJECTED" })), true;
+    }
+    // Feed whatever the blob revealed into the risk engine (guards 47/76).
+    if (v.signals.length) risk.recordOutcome(v.signals, false);
+    return json(res, v.trusted ? 200 : 403, Object.assign(v, {
+      flag: v.trusted ? "FLAG-SENSOR-8f27" : "FLAG-SENSOR-BOT",
+      note: "Guard 36 posts readable JSON; this is an encrypted single-use blob keyed to a server nonce.",
+    })), true;
+  }
+  if (p === "/api/sensor/reset") { sensor.reset(); return json(res, 200, { ok: true }), true; }
 
   /* ============ Guard 79: degradation response modes ============ */
   // Beyond 403. A plain refusal tells the scraper exactly what to fix; these
