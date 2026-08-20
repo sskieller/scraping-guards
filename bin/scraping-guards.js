@@ -53,9 +53,10 @@ if (cmd === "serve") {
   const lines = [
     `${base}/index.html`,      // guards 0-25
     `${base}/advanced.html`,   // guards 26-46
-    `${base}/frontier.html`,   // guards 47-82
+    `${base}/frontier.html`,   // guards 47-85
     `${base}/recipes`,         // catalogue index
     ...RECIPES.map((r) => `${base}/recipe/${r.slug}`),
+    `${base}/relocate?sid=crawl&rev=1`,   // guard 85 — request it twice
     `${base}/robots.txt`,
     `${base}/ai.txt`,
     `${base}/llms.txt`,
@@ -80,7 +81,7 @@ if (cmd === "serve") {
   process.stdout.write(JSON.stringify({
     count: all.length,
     success: all.filter((f) => !/-BOT$|-429$|-TRIPPED$|-TAMPERED$|-REFUSED$|-SPOOFED$|-DONOTFOLLOW$|-NONE$/.test(f)),
-    fired: all.filter((f) => /-BOT$|-429$|-TRIPPED$|-TAMPERED$|-REFUSED$|-SPOOFED$|-DONOTFOLLOW$/.test(f)),
+    fired: all.filter((f) => /-BOT$|-429$|-TRIPPED$|-TAMPERED$|-REFUSED$|-SPOOFED$|-DONOTFOLLOW$|-REJECTED$/.test(f)),
   }, null, 2) + "\n");
 } else {
   console.error(`unknown command: ${cmd}\n`);

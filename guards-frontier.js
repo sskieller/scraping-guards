@@ -352,6 +352,96 @@
     out("policy-out", rows.join("\n"));
   })();
 
+  /* --- 84. Canvas noise detection --- */
+  (async () => {
+    try {
+      const TEXT = "guard-84 \u{1F512}";
+      const paint = (c, y) => {
+        const x = c.getContext("2d");
+        x.textBaseline = "top";
+        x.font = "16px sans-serif";
+        x.fillStyle = "#102030";
+        x.fillText(TEXT, 8, y);
+        return x;
+      };
+      const mk = () => { const c = document.createElement("canvas"); c.width = 200; c.height = 80; return c; };
+      const diff = (p, q) => { let n = 0; for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) n++; return n; };
+
+      // (a) The same content, drawn twice into two canvases. Any per-call
+      // randomness shows up here.
+      const a1 = paint(mk(), 8).getImageData(8, 8, 160, 24).data;
+      const a2 = paint(mk(), 8).getImageData(8, 8, 160, 24).data;
+
+      // (b) The same content at two vertical offsets in ONE canvas. Noise that
+      // is seeded per session and keyed to pixel position survives (a) and
+      // fails here, because rasterizing a glyph is translation-invariant.
+      const c = mk();
+      const x = c.getContext("2d");
+      x.textBaseline = "top"; x.font = "16px sans-serif"; x.fillStyle = "#102030";
+      x.fillText(TEXT, 8, 8);
+      x.fillText(TEXT, 8, 40);
+      const b1 = x.getImageData(8, 8, 160, 24).data;
+      const b2 = x.getImageData(8, 40, 160, 24).data;
+
+      const body = {
+        sameTwice: diff(a1, a2),
+        translated: diff(b1, b2),
+        nonBlank: [...a1].filter((v, i) => i % 4 === 3 && v !== 0).length,
+      };
+      const r = await fetch("/api/canvas/noise", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      }).then(j);
+      out("canvasnoise-out",
+        `${r.flag} sameTwice=${body.sameTwice} translated=${body.translated} signals=[${r.signals.join(", ")}]`);
+    } catch (err) {
+      out("canvasnoise-out", "canvas probe failed: " + err.message);
+    }
+  })();
+
+  /* --- 83. Sensor data: collect, seal, submit --- */
+  (async () => {
+    try {
+      const hex = (s) => Uint8Array.from(s.match(/../g).map((b) => parseInt(b, 16)));
+      const b64 = (u8) => btoa(String.fromCharCode(...new Uint8Array(u8)));
+
+      const signals = [];
+      // Passive collection over a short window. A real collector watches far
+      // more and for longer; the shape is what matters here.
+      const note = (n) => { if (!signals.includes(n)) signals.push(n); };
+      for (const ev of ["mousemove", "scroll", "keydown", "pointerdown", "resize", "visibilitychange"]) {
+        addEventListener(ev, () => note(ev), { once: true, passive: true });
+      }
+      // Guarantee a minimum without lying about it: these are observations we
+      // can make immediately rather than events we waited for.
+      note("load"); note("dpr:" + devicePixelRatio); note("tz:" + Intl.DateTimeFormat().resolvedOptions().timeZone);
+      note("lang:" + navigator.language); note("cores:" + (navigator.hardwareConcurrency || 0));
+
+      const meta = await fetch("/api/sensor/nonce").then(j);
+      const key = await crypto.subtle.importKey("raw", hex(meta.key), "AES-GCM", false, ["encrypt"]);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const payload = {
+        ua: navigator.userAgent,
+        collectedAt: Date.now(),
+        signals,
+        screen: { w: screen.width, h: screen.height },
+        webdriver: navigator.webdriver === true,
+        hardwareConcurrency: navigator.hardwareConcurrency || 0,
+      };
+      const data = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(payload))
+      );
+
+      const r = await fetch("/api/sensor/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nonce: meta.nonce, iv: b64(iv), data: b64(data) }),
+      }).then(j);
+      out("sensor-out", `${r.flag} trusted=${r.trusted} signals=[${(r.signals || []).join(", ")}]`);
+    } catch (err) {
+      out("sensor-out", "sensor collection failed: " + err.message);
+    }
+  })();
+
   /* --- 71. QUIC stub --- */
   fetch("/api/net/quic").then(j).then((r) => out("quic-out", `${r.flag} negotiated=${r.negotiated} (simulated)`));
 })();
