@@ -356,6 +356,29 @@
     <output id="sensor-out">[collecting…]</output>
   </section>
 
+  <section class="arch" data-guard="canvas-noise">
+    <h2>84. Canvas noise detection</h2>
+    <p>Anti-detect browsers defeat canvas <em>fingerprinting</em> by perturbing
+       readback — Camoufox patches Skia's anti-aliasing, seeded per session so
+       the hash stays stable within a visit. That defeats guard 20, and creates
+       a new tell: the noise is keyed to pixel <strong>position</strong>, so the
+       same glyph drawn at two offsets no longer matches. A stock browser is
+       byte-identical. <em>Brave and Firefox RFP trip this too</em>, which is why
+       it is weighted as texture rather than as evidence.</p>
+    <output id="canvasnoise-out">[probing…]</output>
+  </section>
+
+  <section class="arch" data-guard="similarity-relocation">
+    <h2>85. Similarity-relocation trap</h2>
+    <p>Randomizing class names does not stop an adaptive parser: it saves the
+       element's tag, attributes, text, ancestors and sibling index, then
+       relocates by similarity. So <a href="/relocate?sid=demo&amp;rev=1">/relocate</a>
+       rotates the whole identity vector — and hands the <strong>previous</strong>
+       response's identity to a decoy. Relocation does not fail; it succeeds onto
+       the wrong element. Anchor on the heading and the <code>itemprop</code>
+       instead and nothing here can move.</p>
+  </section>
+
   <script src="antidebug.js"></script>
   <script src="guards-frontier.js"></script>
 </body>

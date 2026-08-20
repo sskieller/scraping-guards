@@ -352,6 +352,52 @@
     out("policy-out", rows.join("\n"));
   })();
 
+  /* --- 84. Canvas noise detection --- */
+  (async () => {
+    try {
+      const TEXT = "guard-84 \u{1F512}";
+      const paint = (c, y) => {
+        const x = c.getContext("2d");
+        x.textBaseline = "top";
+        x.font = "16px sans-serif";
+        x.fillStyle = "#102030";
+        x.fillText(TEXT, 8, y);
+        return x;
+      };
+      const mk = () => { const c = document.createElement("canvas"); c.width = 200; c.height = 80; return c; };
+      const diff = (p, q) => { let n = 0; for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) n++; return n; };
+
+      // (a) The same content, drawn twice into two canvases. Any per-call
+      // randomness shows up here.
+      const a1 = paint(mk(), 8).getImageData(8, 8, 160, 24).data;
+      const a2 = paint(mk(), 8).getImageData(8, 8, 160, 24).data;
+
+      // (b) The same content at two vertical offsets in ONE canvas. Noise that
+      // is seeded per session and keyed to pixel position survives (a) and
+      // fails here, because rasterizing a glyph is translation-invariant.
+      const c = mk();
+      const x = c.getContext("2d");
+      x.textBaseline = "top"; x.font = "16px sans-serif"; x.fillStyle = "#102030";
+      x.fillText(TEXT, 8, 8);
+      x.fillText(TEXT, 8, 40);
+      const b1 = x.getImageData(8, 8, 160, 24).data;
+      const b2 = x.getImageData(8, 40, 160, 24).data;
+
+      const body = {
+        sameTwice: diff(a1, a2),
+        translated: diff(b1, b2),
+        nonBlank: [...a1].filter((v, i) => i % 4 === 3 && v !== 0).length,
+      };
+      const r = await fetch("/api/canvas/noise", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      }).then(j);
+      out("canvasnoise-out",
+        `${r.flag} sameTwice=${body.sameTwice} translated=${body.translated} signals=[${r.signals.join(", ")}]`);
+    } catch (err) {
+      out("canvasnoise-out", "canvas probe failed: " + err.message);
+    }
+  })();
+
   /* --- 83. Sensor data: collect, seal, submit --- */
   (async () => {
     try {

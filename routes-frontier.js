@@ -19,6 +19,7 @@ const recipePage = require("./lib/recipe-page");
 const recipeimg = require("./lib/recipeimg");
 const tokens = require("./lib/tokens");
 const sensor = require("./lib/sensor");
+const relocate = require("./lib/relocate");
 
 const ROOT = __dirname;
 
@@ -310,6 +311,47 @@ module.exports = async function frontierRoutes(req, res, ctx) {
     })), true;
   }
   if (p === "/api/sensor/reset") { sensor.reset(); return json(res, 200, { ok: true }), true; }
+
+  /* ============ Guard 84: canvas noise detection ============ */
+  // The client renders identical content twice, and once more at a different
+  // pixel offset, then reports how many bytes differ. A stock browser answers
+  // zero to both — measured, not assumed (tests/frontier.spec.js asserts it).
+  if (p === "/api/canvas/noise" && req.method === "POST") {
+    const b = parseJson(await readBody(req)) || {};
+    const signals = [];
+    if (!b.nonBlank) {
+      // Nothing was drawn at all: canvas blocked, or a client that stubs the
+      // API to return a constant. Not noise, but worth separating.
+      signals.push("canvas-unavailable");
+    } else {
+      // Per-call randomness. No shipping browser does this by default, because
+      // it would break every legitimate use of a canvas.
+      if (b.sameTwice > 0) signals.push("canvas-noise-per-call");
+      // Position-seeded noise: identical content differs once moved. This is
+      // what Camoufox's patched Skia does, and what Brave's farbling and
+      // Firefox's resistFingerprinting do too — see the weight in lib/risk.js.
+      if (b.translated > 0) signals.push("canvas-noise-seeded");
+    }
+    if (signals.length) risk.recordOutcome(signals, false);
+    const r = risk.score(signals);
+    return json(res, 200, {
+      signals,
+      score: r.score,
+      action: r.action,
+      hardenedClient: signals.some((s) => s.startsWith("canvas-noise")),
+      flag: signals.length ? "FLAG-CANVASNOISE-DETECTED" : "FLAG-CANVASNOISE-3c7a",
+      note: "Canvas noise means a hardened client, not necessarily a bot: Brave and Firefox RFP trip this too.",
+    }), true;
+  }
+
+  /* ============ Guard 85: similarity-relocation trap ============ */
+  if (p === "/relocate") {
+    const sid = q.get("sid") || "anon";
+    const rev = q.get("rev") || "0";
+    const r = relocate.page(sid, rev);
+    return send(res, 200, r.body, "text/html; charset=utf-8"), true;
+  }
+  if (p === "/api/relocate/reset") { relocate.reset(); return json(res, 200, { ok: true }), true; }
 
   /* ============ Guard 79: degradation response modes ============ */
   // Beyond 403. A plain refusal tells the scraper exactly what to fix; these
@@ -664,6 +706,12 @@ module.exports = async function frontierRoutes(req, res, ctx) {
       negotiated: `HTTP/${req.httpVersion}`,
       quicTransportParams: isH3 ? "initial_max_data,initial_max_streams_bidi,…" : "n/a",
       realRequirement: "QUIC transport parameters + Initial packet shape — needs an HTTP/3 terminator (nginx-quic, Caddy, Cloudflare)",
+      // Worth stating so this guard is not mistaken for a browser check:
+      // speaking HTTP/3 is NOT evidence of a browser. Scrapling's plain HTTP
+      // fetcher does it, and so do curl and httpx with the right build. The
+      // signal is the *shape* of the QUIC Initial and the transport parameters,
+      // never the mere fact that h3 was negotiated.
+      h3IsNotEvidenceOfABrowser: true,
       bot: forced === "bot",
       flag: forced === "bot" ? "FLAG-QUICFP-BOT" : "FLAG-QUICFP-ok",
     }), true;

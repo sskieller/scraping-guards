@@ -53,9 +53,10 @@ if (cmd === "serve") {
   const lines = [
     `${base}/index.html`,      // guards 0-25
     `${base}/advanced.html`,   // guards 26-46
-    `${base}/frontier.html`,   // guards 47-83
+    `${base}/frontier.html`,   // guards 47-85
     `${base}/recipes`,         // catalogue index
     ...RECIPES.map((r) => `${base}/recipe/${r.slug}`),
+    `${base}/relocate?sid=crawl&rev=1`,   // guard 85 — request it twice
     `${base}/robots.txt`,
     `${base}/ai.txt`,
     `${base}/llms.txt`,
